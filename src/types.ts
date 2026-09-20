@@ -1,0 +1,44 @@
+export interface ClipInfo {
+  id: string;
+  path: string;
+  file_name: string;
+  size_bytes: number;
+}
+
+export interface FrameMetrics {
+  timestamp_secs: number;
+  sharpness: number;
+  mean_luminance: number;
+  jitter_delta: number;
+}
+
+export type Classification = "BestTake" | "UsableBRoll" | "DiscardTake";
+
+export interface AnalyzedClip {
+  clip: ClipInfo;
+  frames: FrameMetrics[];
+  min_sharpness: number;
+  max_jitter: number;
+  min_luminance: number;
+  score: number;
+  classification: Classification;
+  flags: string[];
+}
+
+export interface ProjectSummary {
+  total_clips: number;
+  best_take_count: number;
+  usable_broll_count: number;
+  discard_count: number;
+  blurry_flagged: number;
+  shaky_flagged: number;
+  blackout_flagged: number;
+}
+
+export interface AnalysisResult {
+  clips: AnalyzedClip[];
+  summary: ProjectSummary;
+  errors: string[];
+}
+
+export type Tolerance = "aggressive" | "conservative";

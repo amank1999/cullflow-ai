@@ -1,0 +1,20 @@
+[package]
+name = "cullflow-core"
+version = "0.1.0"
+edition = "2021"
+description = "CullFlow AI core engine: ingestion, proxy scanning, CV scoring heuristics, and NLE XML export. No GUI/Tauri dependency so it builds and tests headlessly."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+walkdir = "2"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+imageproc = "0.25"
+rayon = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+which = "7"
+
+[dev-dependencies]
+tempfile = "3"
