@@ -17,6 +17,9 @@ on:
 env:
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
+permissions:
+  contents: write # tauri-action needs this to create/update the GitHub Release
+
 jobs:
   build:
     strategy:
