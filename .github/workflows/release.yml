@@ -7,7 +7,15 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish under (e.g. v0.1.0). Only used for manual runs - a tag push uses the pushed tag automatically."
+        required: false
+        default: "manual-test-build"
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 jobs:
   build:
@@ -82,8 +90,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "CullFlow AI ${{ github.ref_name }}"
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: "CullFlow AI ${{ env.RELEASE_TAG }}"
           releaseBody: "See README.md for what's implemented in this build."
           releaseDraft: true
           prerelease: false
