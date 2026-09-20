@@ -26,10 +26,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Intel Mac (macos-13) is intentionally not built here: GitHub's
+          # Intel-Mac runner pool was slow enough in practice (35+ min
+          # queued, never started) to not be worth blocking releases on -
+          # Apple Silicon covers all Macs since 2020. Add it back to this
+          # matrix if Intel Mac support is needed later.
           - platform: macos-latest # Apple Silicon runner
             ffmpeg_triple: aarch64-apple-darwin
-          - platform: macos-13 # Intel runner
-            ffmpeg_triple: x86_64-apple-darwin
           - platform: ubuntu-22.04
             ffmpeg_triple: x86_64-unknown-linux-gnu
           - platform: windows-latest

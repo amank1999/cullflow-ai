@@ -17,10 +17,15 @@ implementation; see [Known simplifications](#known-simplifications) and
 
 Push a tag like `v0.1.0` (or run the **Release** workflow manually from the
 *Actions* tab) and GitHub Actions builds installers for macOS (Apple
-Silicon + Intel), Windows, and Linux, publishing them as a **draft GitHub
-Release** with downloadable `.dmg` / `.msi` / `.AppImage` files - see
-`.github/workflows/release.yml`. Un-draft the release once you've smoke
-tested a build to make it publicly downloadable.
+Silicon), Windows, and Linux, publishing them as a **draft GitHub
+Release** with downloadable `.dmg` / `.msi` / `.exe` / `.deb` / `.rpm` /
+`.AppImage` files - see `.github/workflows/release.yml`. Un-draft the
+release once you've smoke tested a build to make it publicly downloadable.
+
+Intel Macs aren't built (GitHub's Intel-Mac runner pool proved too slow/
+congested in practice to hold releases on); Apple Silicon covers every Mac
+sold since 2020. Add `macos-13` back to the workflow's matrix if Intel Mac
+support becomes necessary.
 
 ffmpeg is bundled into each installer (see next section), so anyone
 downloading a release does **not** need ffmpeg installed separately.
