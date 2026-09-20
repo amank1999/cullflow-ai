@@ -1,0 +1,89 @@
+name: Release
+
+# Builds CullFlow AI desktop installers for macOS (Apple Silicon), Windows,
+# and Linux, and publishes them as downloadable files on a GitHub Release.
+# Trigger by pushing a tag like `v0.1.0`, or manually from the Actions tab.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest # Apple Silicon runner
+            ffmpeg_triple: aarch64-apple-darwin
+          - platform: macos-13 # Intel runner
+            ffmpeg_triple: x86_64-apple-darwin
+          - platform: ubuntu-22.04
+            ffmpeg_triple: x86_64-unknown-linux-gnu
+          - platform: windows-latest
+            ffmpeg_triple: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev libayatana-appindicator3-dev libxdo-dev
+
+      - name: Fetch bundled ffmpeg (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          mkdir -p src-tauri/binaries
+          curl -fL "https://evermeet.cx/ffmpeg/getrelease/zip" -o /tmp/ffmpeg.zip
+          unzip -oq /tmp/ffmpeg.zip -d /tmp
+          cp /tmp/ffmpeg "src-tauri/binaries/ffmpeg-${{ matrix.ffmpeg_triple }}"
+          chmod +x "src-tauri/binaries/ffmpeg-${{ matrix.ffmpeg_triple }}"
+
+      - name: Fetch bundled ffmpeg (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          mkdir -p src-tauri/binaries
+          curl -fL "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz" -o /tmp/ffmpeg.tar.xz
+          tar -xf /tmp/ffmpeg.tar.xz -C /tmp
+          cp /tmp/ffmpeg-*-amd64-static/ffmpeg "src-tauri/binaries/ffmpeg-${{ matrix.ffmpeg_triple }}"
+          chmod +x "src-tauri/binaries/ffmpeg-${{ matrix.ffmpeg_triple }}"
+
+      - name: Fetch bundled ffmpeg (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile ffmpeg.zip
+          Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg-extract
+          $ffmpegExe = Get-ChildItem -Path ffmpeg-extract -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          Copy-Item $ffmpegExe.FullName "src-tauri/binaries/ffmpeg-${{ matrix.ffmpeg_triple }}.exe"
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "CullFlow AI ${{ github.ref_name }}"
+          releaseBody: "See README.md for what's implemented in this build."
+          releaseDraft: true
+          prerelease: false

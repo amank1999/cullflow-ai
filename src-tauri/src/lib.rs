@@ -1,4 +1,5 @@
 mod commands;
+mod sidecar;
 mod state;
 
 use state::AppState;

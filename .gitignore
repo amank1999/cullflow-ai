@@ -15,6 +15,12 @@ dist-ssr
 # Rust workspace (root now, since src-tauri and cullflow-core share one target dir)
 /target
 
+# Bundled ffmpeg sidecar binaries - fetched by scripts/fetch-ffmpeg.(sh|ps1)
+# or by CI before building, never committed (large, platform-specific, and
+# not ours to redistribute via git).
+/src-tauri/binaries/*
+!/src-tauri/binaries/.gitkeep
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

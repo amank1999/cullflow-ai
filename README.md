@@ -13,6 +13,23 @@ detection, audio VAD, payment/licensing, or a real dense-optical-flow
 implementation; see [Known simplifications](#known-simplifications) and
 [Not yet built](#not-yet-built-blueprint-phase-2) below.
 
+## Downloading a build
+
+Push a tag like `v0.1.0` (or run the **Release** workflow manually from the
+*Actions* tab) and GitHub Actions builds installers for macOS (Apple
+Silicon + Intel), Windows, and Linux, publishing them as a **draft GitHub
+Release** with downloadable `.dmg` / `.msi` / `.AppImage` files - see
+`.github/workflows/release.yml`. Un-draft the release once you've smoke
+tested a build to make it publicly downloadable.
+
+ffmpeg is bundled into each installer (see next section), so anyone
+downloading a release does **not** need ffmpeg installed separately.
+
+Neither macOS nor Windows builds are code-signed yet (that needs a paid
+Apple Developer / code-signing certificate), so first launches will show an
+"unidentified developer" / SmartScreen warning until that's set up - normal
+for a pre-signing MVP, not a build error.
+
 ## Architecture
 
 ```
@@ -76,21 +93,47 @@ Prerequisites).
 ## Prerequisites
 
 - **Rust** (stable) + **Node.js 18+**
-- **ffmpeg** on `PATH`, or set `CULLFLOW_FFMPEG_PATH` to a bundled binary.
-  (The blueprint's target architecture is a statically bundled ffmpeg shipped
-  next to the app - wiring up that bundling/signing per platform is a
-  packaging task for a later pass, not a code change to this engine.)
 - Tauri's native build prerequisites for your OS - see
   <https://tauri.app/start/prerequisites/> (on Linux: `libwebkit2gtk-4.1-dev`,
   `libgtk-3-dev`, `librsvg2-dev`, `libsoup-3.0-dev`, `libayatana-appindicator3-dev`,
   `libxdo-dev`; macOS/Windows need no extra system packages beyond Xcode CLT /
   the MSVC toolchain).
 
+## Bundling ffmpeg (sidecar binary)
+
+CullFlow ships its own ffmpeg next to the app - no separate ffmpeg install
+required for anyone running a built installer. Tauri calls this an
+**external binary / sidecar**: `tauri.conf.json`'s `bundle.externalBin`
+points at `src-tauri/binaries/ffmpeg`, and Tauri looks for a matching file
+per platform named `ffmpeg-<target-triple>[.exe]` at build time (e.g.
+`ffmpeg-aarch64-apple-darwin`, `ffmpeg-x86_64-pc-windows-msvc.exe`). Once
+bundled, it's placed next to the app's own executable at runtime, and
+`src-tauri/src/sidecar.rs` resolves it from there automatically.
+
+These binaries are **not committed to the repo** (large, platform-specific,
+and not ours to redistribute via git) - `.gitignore` excludes
+`src-tauri/binaries/*`. To build locally:
+
+```bash
+./scripts/fetch-ffmpeg.sh        # macOS / Linux
+./scripts/fetch-ffmpeg.ps1       # Windows (PowerShell)
+```
+
+The release CI workflow (`.github/workflows/release.yml`) does the
+equivalent download for each target platform before building, so a
+published release always has ffmpeg bundled in.
+
+At runtime, `resolve_ffmpeg()` (`src-tauri/src/sidecar.rs`) checks, in
+order: `CULLFLOW_FFMPEG_PATH` env var → the bundled sidecar next to the app
+→ `ffmpeg` on `PATH`. That last fallback means dev mode still works with a
+system ffmpeg install even without running the fetch script.
+
 ## Running it
 
 ```bash
+./scripts/fetch-ffmpeg.sh   # or fetch-ffmpeg.ps1 on Windows - one-time setup
 npm install
-npm run tauri dev     # desktop app with hot reload
+npm run tauri dev           # desktop app with hot reload
 ```
 
 Headless-only checks (no native webview toolkit required):
@@ -126,6 +169,7 @@ npm run build                  # frontend typecheck + Vite build
   blueprint's own 8-week roadmap also defers past the Week 1–5 core engine.
 - Payment/licensing integration (LemonSqueezy/Stripe + machine-fingerprint
   license keys) - Week 7 in the roadmap.
-- Platform-specific ffmpeg bundling, code signing, and installers.
+- Code signing / notarization for macOS and Windows (needs a paid developer
+  certificate - not something CI can do on its own).
 - Go-to-market execution (Reddit/Discord/Instagram playbook) - not
   engineering work.

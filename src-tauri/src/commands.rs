@@ -1,7 +1,8 @@
+use crate::sidecar::resolve_ffmpeg;
 use crate::state::AppState;
 use cullflow_core::models::ProjectSummary;
 use cullflow_core::pipeline::{analyze_clips, PipelineConfig};
-use cullflow_core::{ffmpeg, ingest, scoring, xml_export, AnalyzedClip, ClipInfo, Tolerance};
+use cullflow_core::{ingest, scoring, xml_export, AnalyzedClip, ClipInfo, Tolerance};
 use serde::Serialize;
 use std::path::Path;
 use tauri::State;
@@ -30,7 +31,7 @@ pub fn analyze_project(
         return Err("No folder scanned yet - run scan_folder first.".to_string());
     }
 
-    let ffmpeg_path = ffmpeg::locate_ffmpeg().map_err(|e| e.to_string())?;
+    let ffmpeg_path = resolve_ffmpeg()?;
     let tolerance = Tolerance::from_str_or_default(&tolerance);
     *state.tolerance.lock().unwrap() = tolerance;
 
