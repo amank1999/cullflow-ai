@@ -12,7 +12,10 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-22.04
+    # ort's prebuilt ONNX Runtime binary needs glibc symbols (e.g.
+    # __isoc23_strtoll) only present from glibc 2.38+ (Ubuntu 24.04) -
+    # ubuntu-22.04 (glibc 2.35) fails to link with "undefined symbol" errors.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 

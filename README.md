@@ -201,6 +201,13 @@ npm run build                  # frontend typecheck + Vite build
 
 ## Known simplifications
 
+- **Linux build needs glibc 2.39+** (Ubuntu 24.04 or newer, or an equivalent
+  distro release): the `ort` crate's prebuilt ONNX Runtime binary references
+  glibc symbols (e.g. `__isoc23_strtoll`) only present from glibc 2.38
+  onward, so building (and therefore running) on glibc 2.35 (Ubuntu 22.04)
+  fails to link. This is a real behavior change from before face detection
+  was added, not just a build-environment quirk - a Linux user on an older
+  distro won't be able to run the built binary.
 - **Motion/shake detection** (`motion::motion_incoherence`) is block-matching
   motion estimation (search each block's best match in a small neighborhood,
   like classic video-codec motion estimation), not the blueprint's dense
