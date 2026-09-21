@@ -1,4 +1,5 @@
 use crate::face::FaceDetector;
+use crate::landmarks::{self, LandmarkDetector};
 use crate::models::{AnalyzedClip, Classification, ClipInfo, FrameMetrics, Tolerance};
 use crate::motion::motion_incoherence;
 use image::imageops::FilterType;
@@ -40,13 +41,15 @@ fn thumbnail(gray: &GrayImage) -> ImageBuffer<Luma<u8>, Vec<u8>> {
 
 /// Scores an already-extracted proxy frame sequence for one clip. `frame_paths`
 /// must be in timestamp order (as returned by `ffmpeg::extract_proxy_frames`).
-/// `face_detector` is optional (and informational-only, see
-/// `FrameMetrics::face_detected`) so callers where face detection is
-/// unavailable or disabled can still get every other metric.
+/// `face_detector` and `landmark_detector` are optional (and
+/// informational-only, see `FrameMetrics::face_detected` /
+/// `FrameMetrics::eyes_closed`) so callers where they're unavailable or
+/// disabled can still get every other metric.
 pub fn score_frames(
     frame_paths: &[std::path::PathBuf],
     sample_every_secs: f64,
     mut face_detector: Option<&mut FaceDetector>,
+    mut landmark_detector: Option<&mut LandmarkDetector>,
 ) -> image::ImageResult<Vec<FrameMetrics>> {
     let mut metrics = Vec::with_capacity(frame_paths.len());
     let mut prev_thumb: Option<ImageBuffer<Luma<u8>, Vec<u8>>> = None;
@@ -63,13 +66,22 @@ pub fn score_frames(
             None => 0.0,
         };
 
-        let face_detected = if let Some(detector) = &mut face_detector {
-            detector
-                .detect(&dyn_image)
-                .map(|b| !b.is_empty())
-                .unwrap_or(false)
+        let faces = if let Some(detector) = &mut face_detector {
+            detector.detect(&dyn_image).unwrap_or_default()
         } else {
-            false
+            Vec::new()
+        };
+        let face_detected = !faces.is_empty();
+
+        // Landmarks (and therefore the blink signal) run only against the
+        // most confident detected face - one subject's eye state per frame
+        // is enough for the informational signal this drives.
+        let eyes_closed = match (faces.first(), &mut landmark_detector) {
+            (Some(best_face), Some(detector)) => detector
+                .get_landmarks(&dyn_image, best_face)
+                .map(|pts| landmarks::eyes_closed(&pts, landmarks::DEFAULT_EAR_THRESHOLD))
+                .unwrap_or(false),
+            _ => false,
         };
 
         metrics.push(FrameMetrics {
@@ -78,6 +90,7 @@ pub fn score_frames(
             mean_luminance,
             motion_incoherence: motion,
             face_detected,
+            eyes_closed,
         });
 
         prev_thumb = Some(cur_thumb);
@@ -118,6 +131,7 @@ pub fn classify_clip(
             max_motion_incoherence: 0.0,
             min_luminance: 0.0,
             contains_face: false,
+            contains_blink: false,
             score: 0.0,
             classification: Classification::DiscardTake,
             flags: vec!["unreadable".to_string()],
@@ -137,6 +151,7 @@ pub fn classify_clip(
         .map(|f| f.mean_luminance)
         .fold(f64::INFINITY, f64::min);
     let contains_face = frames.iter().any(|f| f.face_detected);
+    let contains_blink = frames.iter().any(|f| f.eyes_closed);
 
     let mut flags = Vec::new();
     if min_sharpness < tolerance.sharpness_threshold() {
@@ -159,6 +174,7 @@ pub fn classify_clip(
             max_motion_incoherence,
             min_luminance,
             contains_face,
+            contains_blink,
             score: 0.0,
             classification: Classification::DiscardTake,
             flags,
@@ -187,6 +203,7 @@ pub fn classify_clip(
         max_motion_incoherence,
         min_luminance,
         contains_face,
+        contains_blink,
         score,
         classification,
         flags,
@@ -239,6 +256,7 @@ mod tests {
             mean_luminance: 2.0,
             motion_incoherence: 0.0,
             face_detected: false,
+            eyes_closed: false,
         }];
         let analyzed = classify_clip(make_clip(), frames, Tolerance::Conservative);
         assert_eq!(analyzed.classification, Classification::DiscardTake);
@@ -255,6 +273,7 @@ mod tests {
                 mean_luminance: 128.0,
                 motion_incoherence: 0.1,
                 face_detected: false,
+                eyes_closed: false,
             },
             FrameMetrics {
                 timestamp_secs: 0.5,
@@ -262,6 +281,7 @@ mod tests {
                 mean_luminance: 130.0,
                 motion_incoherence: 0.2,
                 face_detected: false,
+                eyes_closed: false,
             },
         ];
         let analyzed = classify_clip(make_clip(), frames, Tolerance::Conservative);
@@ -277,6 +297,7 @@ mod tests {
             mean_luminance: 128.0,
             motion_incoherence: 0.0,
             face_detected: false,
+            eyes_closed: false,
         }];
         let analyzed = classify_clip(make_clip(), frames, Tolerance::Conservative);
         assert!(analyzed.flags.contains(&"blurry".to_string()));
@@ -291,6 +312,7 @@ mod tests {
             mean_luminance: 128.0,
             motion_incoherence: 3.0, // well above Conservative's 1.5 threshold
             face_detected: false,
+            eyes_closed: false,
         }];
         let analyzed = classify_clip(make_clip(), frames, Tolerance::Conservative);
         assert!(analyzed.flags.contains(&"shaky".to_string()));

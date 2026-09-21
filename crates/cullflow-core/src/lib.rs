@@ -1,6 +1,7 @@
 pub mod face;
 pub mod ffmpeg;
 pub mod ingest;
+pub mod landmarks;
 pub mod license;
 pub mod models;
 pub mod motion;

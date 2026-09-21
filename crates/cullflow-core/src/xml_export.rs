@@ -145,6 +145,7 @@ mod tests {
             max_motion_incoherence: 0.0,
             min_luminance: 0.0,
             contains_face: false,
+            contains_blink: false,
             score,
             classification,
             flags: vec![],

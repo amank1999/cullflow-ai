@@ -220,6 +220,7 @@ export default function App() {
                       <th>Classification</th>
                       <th>Flags</th>
                       <th>Face</th>
+                      <th>Blink</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -235,6 +236,9 @@ export default function App() {
                         <td>{c.flags.join(", ") || "—"}</td>
                         <td className="clip-table__face-cell" title="Informational only - doesn't affect score">
                           {c.contains_face ? "🙂" : "—"}
+                        </td>
+                        <td className="clip-table__face-cell" title="Informational only - doesn't affect score">
+                          {c.contains_blink ? "😑" : "—"}
                         </td>
                       </tr>
                     ))}

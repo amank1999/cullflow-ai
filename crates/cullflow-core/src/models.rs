@@ -73,10 +73,15 @@ pub struct FrameMetrics {
     /// Whether the bundled face detector (`face::FaceDetector`) found at
     /// least one face in this frame. Informational only - it doesn't affect
     /// score or classification, since a face-free frame is often legitimate
-    /// B-roll, not a bad take. A real blink/expression gate needs an eye
-    /// landmark model this project hasn't been able to source yet (see
-    /// README).
+    /// B-roll, not a bad take.
     pub face_detected: bool,
+    /// Whether the bundled landmark model (`landmarks::LandmarkDetector`)
+    /// measured both eyes below the blink EAR threshold in this frame's
+    /// highest-confidence face. Informational only, like `face_detected` -
+    /// occasional blinks are normal in real footage, and sparse per-clip
+    /// sampling makes a single closed-eye sample an unreliable discard
+    /// signal on its own.
+    pub eyes_closed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,6 +97,9 @@ pub struct AnalyzedClip {
     /// Whether any frame in the clip had a detected face - informational
     /// only, see `FrameMetrics::face_detected`.
     pub contains_face: bool,
+    /// Whether any frame in the clip had eyes measured as closed -
+    /// informational only, see `FrameMetrics::eyes_closed`.
+    pub contains_blink: bool,
     /// Composite 0-100 quality score.
     pub score: f64,
     pub classification: Classification,

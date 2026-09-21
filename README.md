@@ -8,9 +8,9 @@ cloud uploads: everything runs on the editor's own machine.
 
 This pass implements the core pipeline end to end - folder ingest, proxy
 extraction, CV scoring, classification, FCPXML export, an offline license-key
-system, and block-matching motion detection - plus a working desktop UI. It
-intentionally does **not** yet implement facial/blink detection, audio VAD,
-or payment-processor integration; see [Known
+system, block-matching motion detection, and face/blink detection - plus a
+working desktop UI. It intentionally does **not** yet implement audio VAD or
+payment-processor integration; see [Known
 simplifications](#known-simplifications) and [Not yet
 built](#not-yet-built-blueprint-phase-2) below.
 
@@ -110,26 +110,38 @@ Prerequisites).
    in the timeline) rather than deleted, matching the blueprint's "muted
    secondary track for editor safety" intent without needing multi-lane math.
 
-Each frame is also checked for a face (`face::FaceDetector`, see
-[Face detection](#face-detection-not-yet-blinkexpression) below) - shown in
-the UI as an informational "contains a face" indicator, not used in scoring.
+Each frame is also checked for a face and, when one's found, whether its
+eyes are closed (`face::FaceDetector` / `landmarks::LandmarkDetector`, see
+[Face and blink detection](#face-and-blink-detection) below) - both shown in
+the UI as informational indicators, not used in scoring.
 
-## Face detection (not yet blink/expression)
+## Face and blink detection
 
 The blueprint's face/blink gate needs two models: a face detector and an eye
-landmark model (to compute Eye Aspect Ratio). Only the first is built so
-far:
+landmark model (to compute Eye Aspect Ratio). Both are now built:
 
-- **Bundled**: [Ultra-Light-Fast-Generic-Face-Detector-1MB](https://github.com/Linzaer/Ultra-Light-Fast-Generic-Face-Detector-1MB)
+- **Face detector, bundled**: [Ultra-Light-Fast-Generic-Face-Detector-1MB](https://github.com/Linzaer/Ultra-Light-Fast-Generic-Face-Detector-1MB)
   (RFB-320 variant, MIT licensed - see
   `crates/cullflow-core/assets/THIRD_PARTY_LICENSES.md`), run via
   [`ort`](https://ort.pyke.io/) (ONNX Runtime bindings). It answers "is
-  there a face in this frame?", not "are the eyes open?".
+  there a face in this frame?".
+- **Landmark model, bundled**: [PIPNet](https://github.com/jhb86253817/PIPNet)
+  (ResNet-18, 300W+CelebA GSSL checkpoint, 68 points), via the ONNX export
+  and decode logic from [yakhyo/pipnet-onnx](https://github.com/yakhyo/pipnet-onnx)
+  - both MIT licensed, see `THIRD_PARTY_LICENSES.md`. It locates 68 facial
+  landmarks inside the highest-confidence face box per frame; `landmarks::
+  eye_aspect_ratio` computes the Soukupova/Cech Eye Aspect Ratio from the
+  two eyes' points (indices 36-41, 42-47), and `landmarks::eyes_closed`
+  flags a blink when both eyes fall below `DEFAULT_EAR_THRESHOLD` (0.20, per
+  the blueprint spec).
 - **Deliberately not used for scoring or classification**: a face-free frame
-  is often legitimate B-roll (rings, venue, decor), not a bad take, so
-  auto-flagging "no face" as a defect would be wrong. It's exposed as a
-  UI-only indicator (a 🙂 in the clip table) so editors can spot talking-head
-  shots at a glance.
+  is often legitimate B-roll (rings, venue, decor), not a bad take, and a
+  single sampled frame catching a natural blink doesn't mean the take is
+  bad either - proxy frames are sampled every `sample_every_secs`, sparsely
+  enough that one closed-eye sample is an unreliable signal to auto-discard
+  a clip on. Both are exposed as UI-only indicators (🙂 / 😑 in the clip
+  table) so editors can spot talking-head shots and blinks at a glance and
+  decide for themselves.
 - **Behind a Cargo feature** (`face-detection`, default off): `ort`'s
   `download-binaries` build step fetches a prebuilt ONNX Runtime binary over
   the network, which this project's own dev sandbox couldn't do (see "Known
@@ -137,14 +149,6 @@ far:
   offline/local by default; `src-tauri` enables the feature for real builds,
   which is why `.github/workflows/ci.yml` exists - it's the only place this
   path gets built and linked with real network access, on every push.
-- **Sourcing a landmark model** (68/106-point face landmarks, needed for
-  eye state) hit the same network restriction from a different angle: the
-  candidates found were either Git-LFS pointers (not real binaries) when
-  fetched via `raw.githubusercontent.com`, or had complex, undocumented
-  output decoding this project couldn't verify correctness of without a
-  reference implementation and real face footage to test against. Picking
-  up that model and wiring EAR-based blink detection is the next step for
-  this feature (see "Not yet built" below).
 
 ## Prerequisites
 
@@ -230,6 +234,14 @@ npm run build                  # frontend typecheck + Vite build
   implementation writes FCPXML only, since it's a single well-documented
   format both DaVinci Resolve and Premiere Pro import natively, versus
   maintaining two serializers.
+- **Landmark model size**: the bundled PIPNet ONNX model
+  (`pipnet_landmarks_300w_68.onnx`) is ~48MB, embedded directly into the
+  binary via `include_bytes!` alongside the ~1.3MB face detector, for the
+  same reason both are embedded rather than downloaded at runtime (no
+  install-time network dependency, consistent with the "0 bytes leave this
+  machine" offline guarantee). This meaningfully grows the installer size
+  versus the pre-blink-detection MVP - an acceptable tradeoff for a paid
+  desktop tool, but worth knowing about if installer size becomes a concern.
 
 ## Licensing
 
@@ -279,11 +291,11 @@ run by hand) is the next step once a payment processor account exists.
 
 ## Not yet built (blueprint Phase 2)
 
-- Blink/expression gate (Eye Aspect Ratio from face landmarks) - face
-  *detection* is built (see "Face detection" above); an eye landmark model
-  still needs to be sourced and verified. Audio VAD (Silero VAD) is
-  similarly not started. Both pull in ONNX model files the blueprint's own
-  8-week roadmap also defers past the Week 1–5 core engine.
+- Audio VAD (Silero VAD) - not started. Pulls in an ONNX model file the
+  same way face/blink detection does; the blueprint's own 8-week roadmap
+  also defers it past the Week 1–5 core engine. Blink detection itself is
+  now built (see "Face and blink detection" above), informational-only for
+  the reasons described there.
 - Automated payment → license-key issuance (Stripe/LemonSqueezy webhook
   calling `cullflow-keygen`) - the signing/verification/activation pipeline
   itself is built (see "Licensing" above); wiring it to a real payment
