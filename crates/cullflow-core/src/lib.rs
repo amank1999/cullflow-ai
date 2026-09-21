@@ -1,3 +1,4 @@
+pub mod audio;
 pub mod face;
 pub mod ffmpeg;
 pub mod ingest;

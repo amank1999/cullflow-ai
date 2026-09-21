@@ -29,5 +29,9 @@ tempfile = "3"
 # Off by default so `cargo test -p cullflow-core` stays fully offline/local -
 # ort-sys's build script downloads a prebuilt ONNX Runtime binary, which
 # doesn't work in network-restricted environments (see README's "Known
-# simplifications"). Real desktop builds (src-tauri) enable this.
+# simplifications"). Real desktop builds (src-tauri) enable both of these.
 face-detection = ["dep:ort"]
+# Same reasoning as face-detection - gates the Silero VAD ONNX model instead.
+# A separate feature (rather than folding into face-detection) because it's
+# a distinct model/capability, even though both need the same `ort` runtime.
+audio-vad = ["dep:ort"]

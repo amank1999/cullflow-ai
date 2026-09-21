@@ -96,6 +96,50 @@ pub fn extract_proxy_frames(
     Ok(frames)
 }
 
+/// Extracts `clip_path`'s audio track to `out_path` as raw 16kHz mono
+/// 32-bit float PCM (little-endian, headerless) - `audio::SileroVad`'s
+/// expected input format. Returns `Ok(false)` (not an error) when the clip
+/// has no audio stream at all, since a video-only B-roll rig is a common,
+/// legitimate case, not a failure.
+pub fn extract_proxy_audio(
+    ffmpeg_path: &Path,
+    clip_path: &Path,
+    out_path: &Path,
+) -> Result<bool, FfmpegError> {
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let output = Command::new(ffmpeg_path)
+        .arg("-y")
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-i")
+        .arg(clip_path)
+        .arg("-vn")
+        .arg("-ac")
+        .arg("1")
+        .arg("-ar")
+        .arg("16000")
+        .arg("-f")
+        .arg("f32le")
+        .arg(out_path)
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("does not contain any stream") {
+            return Ok(false);
+        }
+        return Err(FfmpegError::NonZeroExit(stderr.to_string()));
+    }
+
+    Ok(std::fs::metadata(out_path)
+        .map(|m| m.len() > 0)
+        .unwrap_or(false))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

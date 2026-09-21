@@ -132,6 +132,9 @@ pub fn classify_clip(
             min_luminance: 0.0,
             contains_face: false,
             contains_blink: false,
+            has_audio: false,
+            speech_ratio: None,
+            audio_clipping_ratio: 0.0,
             score: 0.0,
             classification: Classification::DiscardTake,
             flags: vec!["unreadable".to_string()],
@@ -175,6 +178,9 @@ pub fn classify_clip(
             min_luminance,
             contains_face,
             contains_blink,
+            has_audio: false,
+            speech_ratio: None,
+            audio_clipping_ratio: 0.0,
             score: 0.0,
             classification: Classification::DiscardTake,
             flags,
@@ -204,6 +210,9 @@ pub fn classify_clip(
         min_luminance,
         contains_face,
         contains_blink,
+        has_audio: false,
+        speech_ratio: None,
+        audio_clipping_ratio: 0.0,
         score,
         classification,
         flags,
@@ -212,11 +221,21 @@ pub fn classify_clip(
 
 /// Re-classifies already-scored clips against a new tolerance without
 /// re-running ffmpeg or re-scoring frames - this is what backs the UI's
-/// live sensitivity slider.
+/// live sensitivity slider. Audio metrics don't depend on the visual
+/// tolerance, so they're carried over rather than reset to `classify_clip`'s
+/// defaults.
 pub fn reclassify(clips: Vec<AnalyzedClip>, tolerance: Tolerance) -> Vec<AnalyzedClip> {
     clips
         .into_iter()
-        .map(|c| classify_clip(c.clip, c.frames, tolerance))
+        .map(|c| {
+            let (has_audio, speech_ratio, audio_clipping_ratio) =
+                (c.has_audio, c.speech_ratio, c.audio_clipping_ratio);
+            let mut reclassified = classify_clip(c.clip, c.frames, tolerance);
+            reclassified.has_audio = has_audio;
+            reclassified.speech_ratio = speech_ratio;
+            reclassified.audio_clipping_ratio = audio_clipping_ratio;
+            reclassified
+        })
         .collect()
 }
 

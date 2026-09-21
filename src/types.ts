@@ -26,6 +26,13 @@ export interface AnalyzedClip {
   contains_face: boolean;
   /** Informational only - doesn't affect score/classification. */
   contains_blink: boolean;
+  /** Informational only - doesn't affect score/classification. */
+  has_audio: boolean;
+  /** Fraction (0-1) of the audio track classified as speech; null if no
+   *  audio track or VAD unavailable. Informational only. */
+  speech_ratio: number | null;
+  /** Fraction (0-1) of audio samples near full-scale (clipping). Informational only. */
+  audio_clipping_ratio: number;
   score: number;
   classification: Classification;
   flags: string[];

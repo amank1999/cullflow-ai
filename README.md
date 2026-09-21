@@ -8,8 +8,8 @@ cloud uploads: everything runs on the editor's own machine.
 
 This pass implements the core pipeline end to end - folder ingest, proxy
 extraction, CV scoring, classification, FCPXML export, an offline license-key
-system, block-matching motion detection, and face/blink detection - plus a
-working desktop UI. It intentionally does **not** yet implement audio VAD or
+system, block-matching motion detection, face/blink detection, and audio
+VAD - plus a working desktop UI. It intentionally does **not** yet implement
 payment-processor integration; see [Known
 simplifications](#known-simplifications) and [Not yet
 built](#not-yet-built-blueprint-phase-2) below.
@@ -94,6 +94,9 @@ Prerequisites).
      whatever its speed), while handheld shake or a dropped camera moves
      blocks inconsistently (high incoherence) - one metric distinguishes the
      two without needing the blueprint's dense Farneback optical flow.
+   - In parallel, `ffmpeg::extract_proxy_audio` + `audio::SileroVad` pull
+     each clip's audio track and measure how much of it has detected speech
+     and how much is clipped/over-driven (see "Audio VAD" below).
 3. **Classification** (`scoring::classify_clip`) - combines the worst
    per-frame values into a 0–100 composite score and a Green/Cyan/Red verdict:
    - **Blackout** in any frame is an instant Discard, regardless of the rest
@@ -149,6 +152,37 @@ landmark model (to compute Eye Aspect Ratio). Both are now built:
   offline/local by default; `src-tauri` enables the feature for real builds,
   which is why `.github/workflows/ci.yml` exists - it's the only place this
   path gets built and linked with real network access, on every push.
+
+## Audio VAD
+
+The blueprint's "Facial & Audio Analytics" layer also calls for Silero VAD
+to "cut uncalibrated audio peaks or dead mic takes" - the audio counterpart
+to the visual blackout gate. Built:
+
+- **Bundled**: [Silero VAD](https://github.com/snakers4/silero-vad)'s
+  combined 8kHz/16kHz ONNX model, MIT licensed - see
+  `crates/cullflow-core/assets/THIRD_PARTY_LICENSES.md`. `ffmpeg::
+  extract_proxy_audio` pulls each clip's audio track as raw 16kHz mono PCM;
+  `audio::SileroVad` runs it in 32ms windows (carrying the model's
+  recurrent state and windowing context between windows, exactly like the
+  reference implementation) and reports the fraction classified as speech
+  (`AnalyzedClip::speech_ratio`). A second, model-free metric,
+  `audio::clipping_ratio`, measures the fraction of samples near full-scale
+  - the "uncalibrated audio peaks" half of the same gate.
+- **Deliberately not used for scoring or classification**: a clip with no
+  audio track at all is common and legitimate (a video-only B-roll rig), so
+  `has_audio: false` isn't a defect. Less obviously, a clip *with* an audio
+  track but a near-zero speech ratio isn't reliably a "dead mic" either -
+  it's equally what a legitimate ambient/scenery shot with no dialogue
+  looks like. CullFlow has no way to know from the footage alone whether a
+  given take was *supposed* to have dialogue, so - consistent with the
+  face/blink signals above - this stays an informational indicator (an
+  Audio column showing speech % and a ⚠️ for noticeable clipping) rather
+  than an auto-discard rule.
+- **Behind its own Cargo feature** (`audio-vad`, default off, same
+  `dep:ort` reasoning as `face-detection`): needs network access to fetch
+  ONNX Runtime, so it's off for `cargo test -p cullflow-core` and on for
+  `src-tauri` / CI, same split as face/blink detection.
 
 ## Prerequisites
 
@@ -291,11 +325,6 @@ run by hand) is the next step once a payment processor account exists.
 
 ## Not yet built (blueprint Phase 2)
 
-- Audio VAD (Silero VAD) - not started. Pulls in an ONNX model file the
-  same way face/blink detection does; the blueprint's own 8-week roadmap
-  also defers it past the Week 1–5 core engine. Blink detection itself is
-  now built (see "Face and blink detection" above), informational-only for
-  the reasons described there.
 - Automated payment → license-key issuance (Stripe/LemonSqueezy webhook
   calling `cullflow-keygen`) - the signing/verification/activation pipeline
   itself is built (see "Licensing" above); wiring it to a real payment

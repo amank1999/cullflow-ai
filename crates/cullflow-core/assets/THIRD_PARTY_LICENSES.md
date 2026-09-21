@@ -116,3 +116,47 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## silero_vad.onnx
+
+- **Source**: [snakers4/silero-vad](https://github.com/snakers4/silero-vad),
+  the combined 8kHz/16kHz ONNX model (`src/silero_vad/data/silero_vad.onnx`).
+  MIT licensed (full text below).
+- **Input/output contract** implemented in `../src/audio.rs`, taken from
+  that repo's own `src/silero_vad/utils_vad.py` (`OnnxWrapper`) reference
+  code, and confirmed directly against the ONNX graph's declared
+  input/output names and shapes: inputs `input` (`[1, 576]` float32 - a
+  512-sample/32ms chunk at 16kHz with the previous chunk's trailing 64
+  samples prepended as context), `state` (`[2, 1, 128]` float32, the
+  model's recurrent state, zeroed at the start of each clip), and `sr`
+  (scalar int64, `16000`); outputs `output` (`[1, 1]` float32 speech
+  probability) and `stateN` (`[2, 1, 128]` float32, the updated state to
+  feed into the next chunk). Only the aggregate "fraction of chunks
+  classified as speech" is computed (`SileroVad::speech_ratio`) - the
+  reference repo's more elaborate speech-timestamp segmentation
+  (`get_speech_timestamps`) isn't needed for this project's informational
+  "how much of this clip has a live mic" signal and wasn't ported.
+
+```
+MIT License
+
+Copyright (c) 2020-present Silero Team
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

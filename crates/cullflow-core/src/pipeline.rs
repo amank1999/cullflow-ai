@@ -1,5 +1,6 @@
+use crate::audio::{self, SileroVad};
 use crate::face::FaceDetector;
-use crate::ffmpeg::extract_proxy_frames;
+use crate::ffmpeg::{extract_proxy_audio, extract_proxy_frames};
 use crate::landmarks::LandmarkDetector;
 use crate::models::{AnalyzedClip, ClipInfo, Tolerance};
 use crate::scoring::{classify_clip, score_frames};
@@ -67,5 +68,27 @@ fn analyze_one(
     )
     .map_err(|e| format!("{} : {e}", clip.file_name))?;
 
-    Ok(classify_clip(clip, frame_metrics, config.tolerance))
+    let mut analyzed = classify_clip(clip, frame_metrics, config.tolerance);
+
+    // Audio VAD is informational-only (see AnalyzedClip::speech_ratio) and
+    // gracefully unavailable when the clip has no audio track, the
+    // audio-vad feature isn't compiled in, or the model fails to load -
+    // none of that ever fails the clip.
+    let audio_path = out_dir.join("audio.f32le");
+    let has_audio = extract_proxy_audio(ffmpeg_path, Path::new(&analyzed.clip.path), &audio_path)
+        .unwrap_or(false);
+    if has_audio {
+        if let Ok(bytes) = std::fs::read(&audio_path) {
+            let samples = audio::read_pcm_f32le(&bytes);
+            analyzed.has_audio = true;
+            analyzed.audio_clipping_ratio =
+                audio::clipping_ratio(&samples, audio::DEFAULT_CLIPPING_THRESHOLD);
+            analyzed.speech_ratio = SileroVad::load().ok().and_then(|mut vad| {
+                vad.speech_ratio(&samples, audio::DEFAULT_SPEECH_THRESHOLD)
+                    .ok()
+            });
+        }
+    }
+
+    Ok(analyzed)
 }

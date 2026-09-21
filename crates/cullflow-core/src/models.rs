@@ -100,6 +100,24 @@ pub struct AnalyzedClip {
     /// Whether any frame in the clip had eyes measured as closed -
     /// informational only, see `FrameMetrics::eyes_closed`.
     pub contains_blink: bool,
+    /// Whether the clip has an audio track at all. `false` is common and
+    /// legitimate (video-only B-roll rigs), so this is informational only,
+    /// like `speech_ratio` and `audio_clipping_ratio` below.
+    pub has_audio: bool,
+    /// Fraction (0.0-1.0) of the audio track's ~32ms windows the bundled
+    /// Silero VAD model (`audio::SileroVad`) classified as speech -
+    /// `None` when there's no audio track or the model was unavailable.
+    /// Informational only, per the blueprint's "dead mic take" signal: a
+    /// near-zero ratio can mean a failed mic, but is equally common for a
+    /// legitimate ambient/scenery shot with no dialogue, so it doesn't
+    /// affect score or classification.
+    pub speech_ratio: Option<f64>,
+    /// Fraction (0.0-1.0) of audio samples at or above
+    /// `audio::DEFAULT_CLIPPING_THRESHOLD` absolute amplitude - the
+    /// blueprint's "uncalibrated audio peaks" signal. 0.0 when there's no
+    /// audio track. Informational only, for the same reason as
+    /// `speech_ratio`.
+    pub audio_clipping_ratio: f64,
     /// Composite 0-100 quality score.
     pub score: f64,
     pub classification: Classification,

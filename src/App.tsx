@@ -8,7 +8,7 @@ import {
   scanFolder,
   setTolerance,
 } from "./api";
-import type { AnalysisResult, ClipInfo, Classification, LicenseStatus, Tolerance } from "./types";
+import type { AnalyzedClip, AnalysisResult, ClipInfo, Classification, LicenseStatus, Tolerance } from "./types";
 import "./App.css";
 
 const TIER_LABEL: Record<string, string> = {
@@ -30,6 +30,17 @@ const CLASSIFICATION_CLASS: Record<Classification, string> = {
   UsableBRoll: "badge badge--cyan",
   DiscardTake: "badge badge--red",
 };
+
+// Purely cosmetic UI threshold for the clipping warning icon below - not
+// used anywhere in scoring.
+const AUDIO_CLIPPING_WARN_RATIO = 0.005;
+
+function formatAudioCell(c: AnalyzedClip): string {
+  if (!c.has_audio) return "—";
+  const clipped = c.audio_clipping_ratio > AUDIO_CLIPPING_WARN_RATIO ? "⚠️ " : "";
+  if (c.speech_ratio === null) return `${clipped}🎤?`;
+  return `${clipped}${Math.round(c.speech_ratio * 100)}% 🎤`;
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -221,6 +232,7 @@ export default function App() {
                       <th>Flags</th>
                       <th>Face</th>
                       <th>Blink</th>
+                      <th>Audio</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -239,6 +251,9 @@ export default function App() {
                         </td>
                         <td className="clip-table__face-cell" title="Informational only - doesn't affect score">
                           {c.contains_blink ? "😑" : "—"}
+                        </td>
+                        <td className="clip-table__face-cell" title="Informational only - doesn't affect score">
+                          {formatAudioCell(c)}
                         </td>
                       </tr>
                     ))}
