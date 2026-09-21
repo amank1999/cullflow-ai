@@ -15,6 +15,11 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 which = "7"
+ed25519-dalek = { version = "2", features = ["rand_core", "pkcs8", "pem"] }
+rand = "0.8"
+sha2 = "0.10"
+base64 = "0.22"
+machine-uid = "0.6"
 
 [dev-dependencies]
 tempfile = "3"

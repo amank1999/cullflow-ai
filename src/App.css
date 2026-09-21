@@ -28,6 +28,14 @@ body {
   padding: 32px 24px 64px;
 }
 
+.app__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 .app__header h1 {
   margin: 0;
   font-size: 28px;
@@ -37,6 +45,64 @@ body {
 .app__tagline {
   margin: 4px 0 32px;
   color: var(--text-dim);
+}
+
+.steps__meta--warn {
+  color: var(--red);
+}
+
+.license-panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 12px;
+  min-width: 220px;
+}
+
+.license-panel--active {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.license-panel__detail {
+  color: var(--text-dim);
+}
+
+.license-panel__reason {
+  margin: 0 0 8px;
+  color: var(--red);
+}
+
+.license-panel__form {
+  display: flex;
+  gap: 6px;
+}
+
+.license-panel__form input {
+  flex: 1;
+  min-width: 0;
+  background: #0e1626;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.license-panel__form button {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.license-panel__fingerprint {
+  margin: 8px 0 0;
+  color: var(--text-dim);
+}
+
+.license-panel__fingerprint code {
+  color: var(--text);
 }
 
 .steps {

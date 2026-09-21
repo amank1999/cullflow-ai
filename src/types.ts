@@ -42,3 +42,16 @@ export interface AnalysisResult {
 }
 
 export type Tolerance = "aggressive" | "conservative";
+
+export type LicenseTier = "founding" | "pro-freelancer" | "studio-suite";
+
+export type LicenseStatus =
+  | { state: "not_activated"; machine_fingerprint: string }
+  | {
+      state: "active";
+      machine_fingerprint: string;
+      license_id: string;
+      customer_email: string;
+      tier: LicenseTier;
+    }
+  | { state: "invalid"; machine_fingerprint: string; reason: string };

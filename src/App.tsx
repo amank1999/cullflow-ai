@@ -1,7 +1,21 @@
-import { useMemo, useState } from "react";
-import { analyzeProject, exportXml, pickFolder, scanFolder, setTolerance } from "./api";
-import type { AnalysisResult, ClipInfo, Classification, Tolerance } from "./types";
+import { useEffect, useMemo, useState } from "react";
+import {
+  activateLicense,
+  analyzeProject,
+  exportXml,
+  getLicenseStatus,
+  pickFolder,
+  scanFolder,
+  setTolerance,
+} from "./api";
+import type { AnalysisResult, ClipInfo, Classification, LicenseStatus, Tolerance } from "./types";
 import "./App.css";
+
+const TIER_LABEL: Record<string, string> = {
+  founding: "Founding Pass",
+  "pro-freelancer": "Pro Freelancer",
+  "studio-suite": "Studio Suite",
+};
 
 type Stage = "idle" | "scanned" | "analyzing" | "analyzed" | "exporting";
 
@@ -37,6 +51,11 @@ export default function App() {
   const [stage, setStage] = useState<Stage>("idle");
   const [error, setError] = useState<string | null>(null);
   const [exportedPath, setExportedPath] = useState<string | null>(null);
+  const [license, setLicense] = useState<LicenseStatus | null>(null);
+
+  useEffect(() => {
+    getLicenseStatus().then(setLicense).catch(() => {});
+  }, []);
 
   const totalSize = useMemo(
     () => clips.reduce((sum, c) => sum + c.size_bytes, 0),
@@ -91,8 +110,19 @@ export default function App() {
       setExportedPath(path);
     } catch (e) {
       setError(String(e));
+      getLicenseStatus().then(setLicense).catch(() => {});
     } finally {
       setStage("analyzed");
+    }
+  }
+
+  async function handleActivate(key: string) {
+    setError(null);
+    try {
+      const status = await activateLicense(key);
+      setLicense(status);
+    } catch (e) {
+      setError(String(e));
     }
   }
 
@@ -105,6 +135,7 @@ export default function App() {
             Offline footage culling &amp; NLE timeline generation. 0 bytes leave this machine.
           </p>
         </div>
+        <LicensePanel license={license} onActivate={handleActivate} />
       </header>
 
       <ol className="steps">
@@ -217,6 +248,11 @@ export default function App() {
           <div>
             <h2>One-Click XML Export</h2>
             <p>Generates an FCPXML sequence (imports into DaVinci Resolve &amp; Premiere Pro) with color-coded markers, mapped back to your original files.</p>
+            {license?.state !== "active" && (
+              <p className="steps__meta steps__meta--warn">
+                Requires an activated license - scanning and scoring above stay free to try.
+              </p>
+            )}
             <button onClick={handleExport} disabled={!result || stage === "exporting"}>
               {stage === "exporting" ? "Exporting…" : "Generate NLE Sequence"}
             </button>
@@ -243,6 +279,55 @@ function SummaryCard({
     <div className={`summary-card summary-card--${tone}`}>
       <div className="summary-card__value">{value}</div>
       <div className="summary-card__label">{label}</div>
+    </div>
+  );
+}
+
+function LicensePanel({
+  license,
+  onActivate,
+}: {
+  license: LicenseStatus | null;
+  onActivate: (key: string) => void;
+}) {
+  const [keyInput, setKeyInput] = useState("");
+
+  if (!license) return null;
+
+  if (license.state === "active") {
+    return (
+      <div className="license-panel license-panel--active">
+        <span className="badge badge--green">Licensed</span>
+        <span className="license-panel__detail">
+          {TIER_LABEL[license.tier] ?? license.tier} · {license.customer_email}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="license-panel">
+      {license.state === "invalid" && (
+        <p className="license-panel__reason">License invalid: {license.reason}</p>
+      )}
+      <form
+        className="license-panel__form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (keyInput.trim()) onActivate(keyInput.trim());
+        }}
+      >
+        <input
+          type="text"
+          placeholder="Paste your license key…"
+          value={keyInput}
+          onChange={(e) => setKeyInput(e.target.value)}
+        />
+        <button type="submit">Activate</button>
+      </form>
+      <p className="license-panel__fingerprint">
+        Machine ID: <code>{license.machine_fingerprint}</code>
+      </p>
     </div>
   );
 }

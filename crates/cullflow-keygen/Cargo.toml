@@ -1,0 +1,13 @@
+[package]
+name = "cullflow-keygen"
+version = "0.1.0"
+edition = "2021"
+description = "Seller-side CLI: generates a signing keypair, and issues signed CullFlow AI license keys against it. Never ships inside the desktop app."
+
+[dependencies]
+cullflow-core = { path = "../cullflow-core" }
+clap = { version = "4", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+base64 = "0.22"

@@ -167,13 +167,65 @@ npm run build                  # frontend typecheck + Vite build
   format both DaVinci Resolve and Premiere Pro import natively, versus
   maintaining two serializers.
 
+## Licensing
+
+Scanning and scoring a project (steps 1-3 of the workflow) work with no
+license at all, so an editor can see CullFlow actually cull their footage
+before paying. **Exporting** the NLE sequence (step 4) requires an
+activated license - this is what makes the desktop app safe to distribute
+freely (via GitHub Releases, a website, wherever): without a paid key it's
+a fully-working preview that can't produce the deliverable.
+
+**How it works** (`crates/cullflow-core/src/license.rs`, `crates/cullflow-keygen/`,
+`src-tauri/src/license_store.rs`):
+
+1. A license key is an Ed25519-signed payload (customer email, tier, an
+   optional expiry) - `CFAI1.<payload>.<signature>`, verifiable **fully
+   offline** against a public key embedded in the app. No server call is
+   needed to check a key, matching the app's zero-cloud design.
+2. Keys are issued with **`cullflow-keygen`**, a separate CLI that holds the
+   private signing key - it never ships inside the desktop app:
+   ```bash
+   cargo run -p cullflow-keygen -- genkey   # once, to create the real signing keypair
+   export CULLFLOW_SIGNING_KEY=<private key from genkey>
+   cargo run -p cullflow-keygen -- issue --email buyer@example.com --tier founding
+   ```
+   Paste `genkey`'s public key into `LICENSE_PUBLIC_KEY_B64` in
+   `license.rs` before shipping a build - the copy in this repo right now
+   is a real keypair generated during development, already swapped into
+   that constant, but treat it as a placeholder to rotate before any real
+   sale (see the security note in that file).
+3. Entering a key in the app's License panel calls `activate_license`,
+   which re-verifies it and stores `{key, machine fingerprint}` locally
+   (`license_store.rs`). Every later check re-verifies the signature *and*
+   confirms the stored fingerprint still matches the current machine.
+
+**What this does and doesn't protect against:** the signature stops anyone
+from forging a key out of thin air, and the machine-fingerprint binding
+stops casually copying your app's local config folder to a friend's
+computer. It does **not** stop someone sharing the raw key *string* itself
+with a friend, who could then activate that same string on their own
+machine - true single-seat enforcement needs an online activation server
+to track redemptions, which is a deliberate scope cut for this offline-first
+MVP (see "Not yet built" below).
+
+Wiring `cullflow-keygen issue` up to a Stripe/LemonSqueezy payment webhook
+(so a key is generated and emailed automatically on purchase, instead of
+run by hand) is the next step once a payment processor account exists.
+
 ## Not yet built (blueprint Phase 2)
 
 - Facial/blink gate (MediaPipe FaceMesh, Eye Aspect Ratio) and audio VAD
   (Silero VAD) - these pull in an ONNX Runtime + model-file dependency the
   blueprint's own 8-week roadmap also defers past the Week 1–5 core engine.
-- Payment/licensing integration (LemonSqueezy/Stripe + machine-fingerprint
-  license keys) - Week 7 in the roadmap.
+- Automated payment → license-key issuance (Stripe/LemonSqueezy webhook
+  calling `cullflow-keygen`) - the signing/verification/activation pipeline
+  itself is built (see "Licensing" above); wiring it to a real payment
+  processor needs that processor's account and API keys.
+- Online seat/activation-count enforcement (stopping the same key being
+  shared and activated on multiple machines) - would need an activation
+  server, which conflicts with the fully-offline verification this MVP
+  intentionally uses instead.
 - Code signing / notarization for macOS and Windows (needs a paid developer
   certificate - not something CI can do on its own).
 - Go-to-market execution (Reddit/Discord/Instagram playbook) - not

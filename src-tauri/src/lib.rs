@@ -1,4 +1,5 @@
 mod commands;
+mod license_store;
 mod sidecar;
 mod state;
 
@@ -16,7 +17,11 @@ pub fn run() {
                 .app_cache_dir()
                 .unwrap_or_else(|_| std::env::temp_dir())
                 .join("cullflow-proxies");
-            app.manage(AppState::new(proxy_root));
+            let config_dir = app
+                .path()
+                .app_config_dir()
+                .unwrap_or_else(|_| std::env::temp_dir());
+            app.manage(AppState::new(proxy_root, config_dir));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -24,6 +29,8 @@ pub fn run() {
             commands::analyze_project,
             commands::set_tolerance,
             commands::export_xml,
+            commands::get_license_status,
+            commands::activate_license,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

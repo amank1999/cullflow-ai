@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { AnalysisResult, ClipInfo, Tolerance } from "./types";
+import type { AnalysisResult, ClipInfo, LicenseStatus, Tolerance } from "./types";
 
 export async function pickFolder(): Promise<string | null> {
   const selected = await open({ directory: true, multiple: false });
@@ -27,4 +27,12 @@ export async function exportXml(): Promise<string | null> {
   });
   if (!outputPath) return null;
   return invoke<string>("export_xml", { outputPath });
+}
+
+export async function getLicenseStatus(): Promise<LicenseStatus> {
+  return invoke<LicenseStatus>("get_license_status");
+}
+
+export async function activateLicense(key: string): Promise<LicenseStatus> {
+  return invoke<LicenseStatus>("activate_license", { key });
 }

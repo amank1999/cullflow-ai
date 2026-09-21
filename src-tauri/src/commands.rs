@@ -1,3 +1,4 @@
+use crate::license_store::{self, LicenseStatus};
 use crate::sidecar::resolve_ffmpeg;
 use crate::state::AppState;
 use cullflow_core::models::ProjectSummary;
@@ -85,8 +86,18 @@ pub fn set_tolerance(tolerance: String, state: State<AppState>) -> Result<Analys
     })
 }
 
+/// Exporting the timeline is the paid deliverable: scanning and scoring
+/// stay free so an editor can see CullFlow actually work on their footage
+/// before buying, but generating the NLE sequence requires an active
+/// license (see `license_store` for what "active" checks).
 #[tauri::command]
 pub fn export_xml(output_path: String, state: State<AppState>) -> Result<String, String> {
+    if !license_store::is_active(&state.config_dir) {
+        return Err(
+            "Activate a CullFlow AI license to export your project - enter your license key in the app's License panel.".to_string(),
+        );
+    }
+
     let clips = state.analyzed_clips.lock().unwrap().clone();
     if clips.is_empty() {
         return Err("No analyzed clips yet - run analyze_project first.".to_string());
@@ -95,4 +106,14 @@ pub fn export_xml(output_path: String, state: State<AppState>) -> Result<String,
     let xml = xml_export::generate_fcpxml(&clips, 0.5);
     std::fs::write(&output_path, xml).map_err(|e| e.to_string())?;
     Ok(output_path)
+}
+
+#[tauri::command]
+pub fn get_license_status(state: State<AppState>) -> LicenseStatus {
+    license_store::current_status(&state.config_dir)
+}
+
+#[tauri::command]
+pub fn activate_license(key: String, state: State<AppState>) -> Result<LicenseStatus, String> {
+    license_store::activate(&state.config_dir, &key)
 }

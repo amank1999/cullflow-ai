@@ -1,5 +1,6 @@
 pub mod ffmpeg;
 pub mod ingest;
+pub mod license;
 pub mod models;
 pub mod pipeline;
 pub mod scoring;
