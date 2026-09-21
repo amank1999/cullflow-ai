@@ -7,11 +7,12 @@ cloud uploads: everything runs on the editor's own machine.
 ## Status: MVP scaffold (blueprint Weeks 1–5)
 
 This pass implements the core pipeline end to end - folder ingest, proxy
-extraction, CV scoring, classification, and FCPXML export - plus a working
-desktop UI. It intentionally does **not** yet implement facial/blink
-detection, audio VAD, payment/licensing, or a real dense-optical-flow
-implementation; see [Known simplifications](#known-simplifications) and
-[Not yet built](#not-yet-built-blueprint-phase-2) below.
+extraction, CV scoring, classification, FCPXML export, an offline license-key
+system, and block-matching motion detection - plus a working desktop UI. It
+intentionally does **not** yet implement facial/blink detection, audio VAD,
+or payment-processor integration; see [Known
+simplifications](#known-simplifications) and [Not yet
+built](#not-yet-built-blueprint-phase-2) below.
 
 ## Downloading a build
 
@@ -43,15 +44,22 @@ cullflow-ai/
                              unit-testable headlessly (cargo test -p cullflow-core)
     src/ingest.rs            Recursive folder scan -> ClipInfo list
     src/ffmpeg.rs             Locates + shells out to ffmpeg for proxy frame extraction
-    src/scoring.rs            Per-frame sharpness / luminance / jitter metrics
+    src/scoring.rs            Per-frame sharpness / luminance / motion metrics
                               + clip-level classification
+    src/motion.rs             Block-matching motion estimation (shake vs. pan)
+    src/license.rs            Ed25519 offline license-key signing/verification
     src/xml_export.rs         FCPXML 1.10 sequence generator
     src/pipeline.rs           Parallel (rayon) per-clip analysis pipeline
     src/models.rs             Shared data types (ClipInfo, AnalyzedClip, Tolerance, ...)
 
+  crates/cullflow-keygen/    Seller-side CLI: issues signed license keys.
+                              Never ships inside the desktop app.
+
   src-tauri/                Tauri (Rust) desktop shell
     src/commands.rs           Tauri commands exposed to the frontend
     src/state.rs              In-memory app state (scanned/analyzed clips)
+    src/license_store.rs      Local license activation + machine binding
+    src/sidecar.rs            Resolves the bundled ffmpeg binary at runtime
     src/lib.rs                App wiring
 
   src/                       React + TypeScript frontend (Vite)
@@ -77,15 +85,21 @@ Prerequisites).
      back to software silently if that fails).
    - Each frame is scored for **sharpness** (variance of the Laplacian - low
      variance means an out-of-focus frame), **mean luminance** (near-zero
-     means lens-cap/blackout), and **jitter** (mean luminance delta between
-     downsampled consecutive frames - a cheap proxy for camera shake).
+     means lens-cap/blackout), and **motion incoherence** (`motion::motion_incoherence`
+     - block-matching motion estimation between consecutive downsampled
+     frames, measuring how much blocks *disagree* with each other about
+     which way the frame moved). That disagreement is the useful signal: a
+     deliberate pan moves every block the same way (low incoherence,
+     whatever its speed), while handheld shake or a dropped camera moves
+     blocks inconsistently (high incoherence) - one metric distinguishes the
+     two without needing the blueprint's dense Farneback optical flow.
 3. **Classification** (`scoring::classify_clip`) - combines the worst
    per-frame values into a 0–100 composite score and a Green/Cyan/Red verdict:
    - **Blackout** in any frame is an instant Discard, regardless of the rest
      of the clip (matches the blueprint's "instant purge" rule).
-   - Otherwise, score = `0.6 * sharpness_score + 0.4 * jitter_score`, banded
+   - Otherwise, score = `0.6 * sharpness_score + 0.4 * motion_score`, banded
      into Best Take (≥70), Usable B-Roll (≥35), Discard (<35).
-   - **Aggressive** vs **Conservative** tolerance changes the sharpness/jitter
+   - **Aggressive** vs **Conservative** tolerance changes the sharpness/motion
      thresholds; switching it in the UI reclassifies already-scored clips
      instantly (`scoring::reclassify`) without re-running ffmpeg.
 4. **Export** (`xml_export::generate_fcpxml`) - writes a standard FCPXML 1.10
@@ -150,13 +164,19 @@ npm run build                  # frontend typecheck + Vite build
 
 ## Known simplifications
 
-- **Jitter/shake detection** is a mean-luminance-delta heuristic between
-  downsampled consecutive frames, not the blueprint's dense Farneback optical
-  flow. It catches gross motion (drops, whip-pans) but won't distinguish
-  intentional cinematic pans from shake as precisely as real optical flow
-  would. Swapping in a proper flow implementation (e.g. via an `opencv-rust`
-  binding once that native dependency is worth taking on) is a drop-in
-  replacement for `scoring::jitter_delta`.
+- **Motion/shake detection** (`motion::motion_incoherence`) is block-matching
+  motion estimation (search each block's best match in a small neighborhood,
+  like classic video-codec motion estimation), not the blueprint's dense
+  per-pixel Farneback optical flow. It correctly separates deliberate pans
+  from shake (see the Pipeline section above) and needs no native
+  dependency, but is coarser than dense flow: an 8x8 block size and a ±4px
+  search window (`crates/cullflow-core/src/motion.rs`) won't catch very fine
+  or very fast motion as precisely as per-pixel flow would. The
+  `Tolerance::motion_incoherence_threshold` values are hand-picked against
+  this metric's theoretical range, not tuned against real footage yet.
+  Swapping in dense flow (e.g. via an `opencv-rust` binding once that native
+  dependency is worth taking on) would be a drop-in replacement for this
+  function's body without changing its callers.
 - **Clip duration in the FCPXML export** is approximated from the number of
   sampled proxy frames × the sampling interval, not the source's true frame
   rate/duration (which would need an `ffprobe` call). Good enough to land

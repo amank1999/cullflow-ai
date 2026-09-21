@@ -142,7 +142,7 @@ mod tests {
             },
             frames: vec![],
             min_sharpness: 0.0,
-            max_jitter: 0.0,
+            max_motion_incoherence: 0.0,
             min_luminance: 0.0,
             score,
             classification,

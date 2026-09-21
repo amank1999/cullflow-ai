@@ -34,11 +34,15 @@ impl Tolerance {
         }
     }
 
-    /// Mean inter-frame luminance delta above this is flagged as unstable/shaky.
-    pub fn jitter_threshold(self) -> f64 {
+    /// Block-motion incoherence (see `motion::motion_incoherence`) above this
+    /// is flagged as unstable/shaky. Scaled to that function's ~0-3.3 range
+    /// (0 = every block agrees, ~3.3 = fully chaotic within its search
+    /// radius) - a deliberate pan should land near 0 regardless of speed,
+    /// since all its blocks move together.
+    pub fn motion_incoherence_threshold(self) -> f64 {
         match self {
-            Tolerance::Aggressive => 18.0,
-            Tolerance::Conservative => 30.0,
+            Tolerance::Aggressive => 0.8,
+            Tolerance::Conservative => 1.5,
         }
     }
 
@@ -63,7 +67,9 @@ pub struct FrameMetrics {
     pub timestamp_secs: f64,
     pub sharpness: f64,
     pub mean_luminance: f64,
-    pub jitter_delta: f64,
+    /// See `motion::motion_incoherence` - near zero for both a static shot
+    /// and a deliberate uniform pan, high for shake/whip-pans/drops.
+    pub motion_incoherence: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,8 +78,8 @@ pub struct AnalyzedClip {
     pub frames: Vec<FrameMetrics>,
     /// Worst (lowest) per-frame sharpness observed - drives the blur flag.
     pub min_sharpness: f64,
-    /// Worst (highest) per-frame jitter delta observed - drives the shake flag.
-    pub max_jitter: f64,
+    /// Worst (highest) per-frame motion incoherence observed - drives the shake flag.
+    pub max_motion_incoherence: f64,
     /// Worst (lowest) per-frame mean luminance - drives the blackout flag.
     pub min_luminance: f64,
     /// Composite 0-100 quality score.

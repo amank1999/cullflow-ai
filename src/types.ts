@@ -9,7 +9,7 @@ export interface FrameMetrics {
   timestamp_secs: number;
   sharpness: number;
   mean_luminance: number;
-  jitter_delta: number;
+  motion_incoherence: number;
 }
 
 export type Classification = "BestTake" | "UsableBRoll" | "DiscardTake";
@@ -18,7 +18,7 @@ export interface AnalyzedClip {
   clip: ClipInfo;
   frames: FrameMetrics[];
   min_sharpness: number;
-  max_jitter: number;
+  max_motion_incoherence: number;
   min_luminance: number;
   score: number;
   classification: Classification;
