@@ -10,6 +10,7 @@ export interface FrameMetrics {
   sharpness: number;
   mean_luminance: number;
   motion_incoherence: number;
+  face_detected: boolean;
 }
 
 export type Classification = "BestTake" | "UsableBRoll" | "DiscardTake";
@@ -20,6 +21,8 @@ export interface AnalyzedClip {
   min_sharpness: number;
   max_motion_incoherence: number;
   min_luminance: number;
+  /** Informational only - doesn't affect score/classification. */
+  contains_face: boolean;
   score: number;
   classification: Classification;
   flags: string[];

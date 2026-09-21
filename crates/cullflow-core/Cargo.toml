@@ -20,6 +20,14 @@ rand = "0.8"
 sha2 = "0.10"
 base64 = "0.22"
 machine-uid = "0.6"
+ort = { version = "2.0.0-rc.13", optional = true, features = ["download-binaries"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+[features]
+# Off by default so `cargo test -p cullflow-core` stays fully offline/local -
+# ort-sys's build script downloads a prebuilt ONNX Runtime binary, which
+# doesn't work in network-restricted environments (see README's "Known
+# simplifications"). Real desktop builds (src-tauri) enable this.
+face-detection = ["dep:ort"]

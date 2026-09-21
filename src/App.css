@@ -247,6 +247,10 @@ button:disabled {
   font-weight: 500;
 }
 
+.clip-table__face-cell {
+  text-align: center;
+}
+
 .badge {
   display: inline-block;
   padding: 2px 8px;

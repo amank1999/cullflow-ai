@@ -70,6 +70,13 @@ pub struct FrameMetrics {
     /// See `motion::motion_incoherence` - near zero for both a static shot
     /// and a deliberate uniform pan, high for shake/whip-pans/drops.
     pub motion_incoherence: f64,
+    /// Whether the bundled face detector (`face::FaceDetector`) found at
+    /// least one face in this frame. Informational only - it doesn't affect
+    /// score or classification, since a face-free frame is often legitimate
+    /// B-roll, not a bad take. A real blink/expression gate needs an eye
+    /// landmark model this project hasn't been able to source yet (see
+    /// README).
+    pub face_detected: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,6 +89,9 @@ pub struct AnalyzedClip {
     pub max_motion_incoherence: f64,
     /// Worst (lowest) per-frame mean luminance - drives the blackout flag.
     pub min_luminance: f64,
+    /// Whether any frame in the clip had a detected face - informational
+    /// only, see `FrameMetrics::face_detected`.
+    pub contains_face: bool,
     /// Composite 0-100 quality score.
     pub score: f64,
     pub classification: Classification,

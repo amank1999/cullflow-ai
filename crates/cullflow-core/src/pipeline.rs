@@ -1,3 +1,4 @@
+use crate::face::FaceDetector;
 use crate::ffmpeg::extract_proxy_frames;
 use crate::models::{AnalyzedClip, ClipInfo, Tolerance};
 use crate::scoring::{classify_clip, score_frames};
@@ -51,8 +52,16 @@ fn analyze_one(
     )
     .map_err(|e| format!("{} : {e}", clip.file_name))?;
 
-    let frame_metrics = score_frames(&frame_paths, config.sample_every_secs)
-        .map_err(|e| format!("{} : {e}", clip.file_name))?;
+    // Face detection is informational-only (see FrameMetrics::face_detected)
+    // and gracefully unavailable when the face-detection feature isn't
+    // compiled in or the model fails to load - it never fails the clip.
+    let mut face_detector = FaceDetector::load().ok();
+    let frame_metrics = score_frames(
+        &frame_paths,
+        config.sample_every_secs,
+        face_detector.as_mut(),
+    )
+    .map_err(|e| format!("{} : {e}", clip.file_name))?;
 
     Ok(classify_clip(clip, frame_metrics, config.tolerance))
 }

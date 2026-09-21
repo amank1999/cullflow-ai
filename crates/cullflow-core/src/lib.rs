@@ -1,3 +1,4 @@
+pub mod face;
 pub mod ffmpeg;
 pub mod ingest;
 pub mod license;

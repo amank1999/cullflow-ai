@@ -219,6 +219,7 @@ export default function App() {
                       <th>Score</th>
                       <th>Classification</th>
                       <th>Flags</th>
+                      <th>Face</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -232,6 +233,9 @@ export default function App() {
                           </span>
                         </td>
                         <td>{c.flags.join(", ") || "—"}</td>
+                        <td className="clip-table__face-cell" title="Informational only - doesn't affect score">
+                          {c.contains_face ? "🙂" : "—"}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

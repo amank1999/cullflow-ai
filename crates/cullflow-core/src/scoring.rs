@@ -1,3 +1,4 @@
+use crate::face::FaceDetector;
 use crate::models::{AnalyzedClip, Classification, ClipInfo, FrameMetrics, Tolerance};
 use crate::motion::motion_incoherence;
 use image::imageops::FilterType;
@@ -39,15 +40,20 @@ fn thumbnail(gray: &GrayImage) -> ImageBuffer<Luma<u8>, Vec<u8>> {
 
 /// Scores an already-extracted proxy frame sequence for one clip. `frame_paths`
 /// must be in timestamp order (as returned by `ffmpeg::extract_proxy_frames`).
+/// `face_detector` is optional (and informational-only, see
+/// `FrameMetrics::face_detected`) so callers where face detection is
+/// unavailable or disabled can still get every other metric.
 pub fn score_frames(
     frame_paths: &[std::path::PathBuf],
     sample_every_secs: f64,
+    mut face_detector: Option<&mut FaceDetector>,
 ) -> image::ImageResult<Vec<FrameMetrics>> {
     let mut metrics = Vec::with_capacity(frame_paths.len());
     let mut prev_thumb: Option<ImageBuffer<Luma<u8>, Vec<u8>>> = None;
 
     for (i, path) in frame_paths.iter().enumerate() {
-        let gray = image::open(path)?.to_luma8();
+        let dyn_image = image::open(path)?;
+        let gray = dyn_image.to_luma8();
         let sharpness = sharpness_of(&gray);
         let mean_luminance = mean_luminance_of(&gray);
         let cur_thumb = thumbnail(&gray);
@@ -57,11 +63,21 @@ pub fn score_frames(
             None => 0.0,
         };
 
+        let face_detected = if let Some(detector) = &mut face_detector {
+            detector
+                .detect(&dyn_image)
+                .map(|b| !b.is_empty())
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
         metrics.push(FrameMetrics {
             timestamp_secs: i as f64 * sample_every_secs,
             sharpness,
             mean_luminance,
             motion_incoherence: motion,
+            face_detected,
         });
 
         prev_thumb = Some(cur_thumb);
@@ -101,6 +117,7 @@ pub fn classify_clip(
             min_sharpness: 0.0,
             max_motion_incoherence: 0.0,
             min_luminance: 0.0,
+            contains_face: false,
             score: 0.0,
             classification: Classification::DiscardTake,
             flags: vec!["unreadable".to_string()],
@@ -119,6 +136,7 @@ pub fn classify_clip(
         .iter()
         .map(|f| f.mean_luminance)
         .fold(f64::INFINITY, f64::min);
+    let contains_face = frames.iter().any(|f| f.face_detected);
 
     let mut flags = Vec::new();
     if min_sharpness < tolerance.sharpness_threshold() {
@@ -140,6 +158,7 @@ pub fn classify_clip(
             min_sharpness,
             max_motion_incoherence,
             min_luminance,
+            contains_face,
             score: 0.0,
             classification: Classification::DiscardTake,
             flags,
@@ -167,6 +186,7 @@ pub fn classify_clip(
         min_sharpness,
         max_motion_incoherence,
         min_luminance,
+        contains_face,
         score,
         classification,
         flags,
@@ -218,6 +238,7 @@ mod tests {
             sharpness: 500.0,
             mean_luminance: 2.0,
             motion_incoherence: 0.0,
+            face_detected: false,
         }];
         let analyzed = classify_clip(make_clip(), frames, Tolerance::Conservative);
         assert_eq!(analyzed.classification, Classification::DiscardTake);
@@ -233,12 +254,14 @@ mod tests {
                 sharpness: 400.0,
                 mean_luminance: 128.0,
                 motion_incoherence: 0.1,
+                face_detected: false,
             },
             FrameMetrics {
                 timestamp_secs: 0.5,
                 sharpness: 420.0,
                 mean_luminance: 130.0,
                 motion_incoherence: 0.2,
+                face_detected: false,
             },
         ];
         let analyzed = classify_clip(make_clip(), frames, Tolerance::Conservative);
@@ -253,6 +276,7 @@ mod tests {
             sharpness: 5.0,
             mean_luminance: 128.0,
             motion_incoherence: 0.0,
+            face_detected: false,
         }];
         let analyzed = classify_clip(make_clip(), frames, Tolerance::Conservative);
         assert!(analyzed.flags.contains(&"blurry".to_string()));
@@ -266,6 +290,7 @@ mod tests {
             sharpness: 400.0,
             mean_luminance: 128.0,
             motion_incoherence: 3.0, // well above Conservative's 1.5 threshold
+            face_detected: false,
         }];
         let analyzed = classify_clip(make_clip(), frames, Tolerance::Conservative);
         assert!(analyzed.flags.contains(&"shaky".to_string()));

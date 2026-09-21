@@ -47,6 +47,7 @@ cullflow-ai/
     src/scoring.rs            Per-frame sharpness / luminance / motion metrics
                               + clip-level classification
     src/motion.rs             Block-matching motion estimation (shake vs. pan)
+    src/face.rs               Bundled ONNX face detector (informational "contains a face" signal)
     src/license.rs            Ed25519 offline license-key signing/verification
     src/xml_export.rs         FCPXML 1.10 sequence generator
     src/pipeline.rs           Parallel (rayon) per-clip analysis pipeline
@@ -108,6 +109,42 @@ Prerequisites).
    score. Discard clips are written with `enabled="0"` (present but disabled
    in the timeline) rather than deleted, matching the blueprint's "muted
    secondary track for editor safety" intent without needing multi-lane math.
+
+Each frame is also checked for a face (`face::FaceDetector`, see
+[Face detection](#face-detection-not-yet-blinkexpression) below) - shown in
+the UI as an informational "contains a face" indicator, not used in scoring.
+
+## Face detection (not yet blink/expression)
+
+The blueprint's face/blink gate needs two models: a face detector and an eye
+landmark model (to compute Eye Aspect Ratio). Only the first is built so
+far:
+
+- **Bundled**: [Ultra-Light-Fast-Generic-Face-Detector-1MB](https://github.com/Linzaer/Ultra-Light-Fast-Generic-Face-Detector-1MB)
+  (RFB-320 variant, MIT licensed - see
+  `crates/cullflow-core/assets/THIRD_PARTY_LICENSES.md`), run via
+  [`ort`](https://ort.pyke.io/) (ONNX Runtime bindings). It answers "is
+  there a face in this frame?", not "are the eyes open?".
+- **Deliberately not used for scoring or classification**: a face-free frame
+  is often legitimate B-roll (rings, venue, decor), not a bad take, so
+  auto-flagging "no face" as a defect would be wrong. It's exposed as a
+  UI-only indicator (a 🙂 in the clip table) so editors can spot talking-head
+  shots at a glance.
+- **Behind a Cargo feature** (`face-detection`, default off): `ort`'s
+  `download-binaries` build step fetches a prebuilt ONNX Runtime binary over
+  the network, which this project's own dev sandbox couldn't do (see "Known
+  simplifications"). `cargo test -p cullflow-core` therefore stays fully
+  offline/local by default; `src-tauri` enables the feature for real builds,
+  which is why `.github/workflows/ci.yml` exists - it's the only place this
+  path gets built and linked with real network access, on every push.
+- **Sourcing a landmark model** (68/106-point face landmarks, needed for
+  eye state) hit the same network restriction from a different angle: the
+  candidates found were either Git-LFS pointers (not real binaries) when
+  fetched via `raw.githubusercontent.com`, or had complex, undocumented
+  output decoding this project couldn't verify correctness of without a
+  reference implementation and real face footage to test against. Picking
+  up that model and wiring EAR-based blink detection is the next step for
+  this feature (see "Not yet built" below).
 
 ## Prerequisites
 
@@ -235,9 +272,11 @@ run by hand) is the next step once a payment processor account exists.
 
 ## Not yet built (blueprint Phase 2)
 
-- Facial/blink gate (MediaPipe FaceMesh, Eye Aspect Ratio) and audio VAD
-  (Silero VAD) - these pull in an ONNX Runtime + model-file dependency the
-  blueprint's own 8-week roadmap also defers past the Week 1–5 core engine.
+- Blink/expression gate (Eye Aspect Ratio from face landmarks) - face
+  *detection* is built (see "Face detection" above); an eye landmark model
+  still needs to be sourced and verified. Audio VAD (Silero VAD) is
+  similarly not started. Both pull in ONNX model files the blueprint's own
+  8-week roadmap also defers past the Week 1–5 core engine.
 - Automated payment → license-key issuance (Stripe/LemonSqueezy webhook
   calling `cullflow-keygen`) - the signing/verification/activation pipeline
   itself is built (see "Licensing" above); wiring it to a real payment
