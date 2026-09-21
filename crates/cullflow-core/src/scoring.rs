@@ -329,7 +329,7 @@ mod tests {
             timestamp_secs: 0.0,
             sharpness: 400.0,
             mean_luminance: 128.0,
-            motion_incoherence: 3.0, // well above Conservative's 1.5 threshold
+            motion_incoherence: 3.2, // above Conservative's 2.5 threshold
             face_detected: false,
             eyes_closed: false,
         }];

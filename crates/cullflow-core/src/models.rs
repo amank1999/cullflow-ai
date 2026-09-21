@@ -38,11 +38,26 @@ impl Tolerance {
     /// is flagged as unstable/shaky. Scaled to that function's ~0-3.3 range
     /// (0 = every block agrees, ~3.3 = fully chaotic within its search
     /// radius) - a deliberate pan should land near 0 regardless of speed,
-    /// since all its blocks move together.
+    /// since all its blocks move together, *in the absence of encoding
+    /// noise*.
+    ///
+    /// Recalibrated after a real-footage smoke test
+    /// (`examples/smoke_test.rs`, ffmpeg-generated clips, not real camera
+    /// footage) found the original thresholds (0.8 / 1.5) - hand-picked
+    /// against the metric's theoretical range - misfired in practice: a
+    /// bit-identical, truly zero-motion looped frame measured ~1.33 purely
+    /// from H.264 + JPEG-proxy compression noise, and a clean deliberate pan
+    /// measured ~2.32, both above the old Conservative threshold. These
+    /// values clear that measured zero-motion noise floor with real margin,
+    /// which was the more severe failure mode (a static or panned good take
+    /// getting discarded). The margin between a clean pan (~2.32) and the
+    /// smoke test's simulated shake (~2.81) is still thin, so shake
+    /// *sensitivity* on real camera footage - as opposed to false positives
+    /// on good takes - is not yet validated and may need further tuning.
     pub fn motion_incoherence_threshold(self) -> f64 {
         match self {
-            Tolerance::Aggressive => 0.8,
-            Tolerance::Conservative => 1.5,
+            Tolerance::Aggressive => 1.8,
+            Tolerance::Conservative => 2.5,
         }
     }
 

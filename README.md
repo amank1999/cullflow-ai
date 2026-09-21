@@ -237,8 +237,32 @@ cargo test -p cullflow-core   # engine unit tests
 npm run build                  # frontend typecheck + Vite build
 ```
 
+To sanity-check the real engine against actual footage without the full
+Tauri app (useful with no display, or before trusting a change):
+
+```bash
+cargo run -p cullflow-core --example smoke_test -- /path/to/footage
+```
+
+Add `--features face-detection,audio-vad` for face/blink/speech signals too
+(needs network access to fetch ONNX Runtime the first time). See
+`crates/cullflow-core/examples/smoke_test.rs`.
+
 ## Known simplifications
 
+- **Motion thresholds are calibrated against ffmpeg-generated synthetic
+  footage, not real camera footage.** A smoke test
+  (`examples/smoke_test.rs`) against real (H.264-encoded, JPEG-proxied)
+  clips found the original thresholds badly miscalibrated: a bit-identical,
+  truly zero-motion clip measured ~1.33 incoherence (from encoding/proxy
+  noise alone) and a clean deliberate pan measured ~2.32 - both above the
+  original Conservative threshold of 1.5, meaning good takes were getting
+  flagged shaky. Thresholds were raised (see `Tolerance::
+  motion_incoherence_threshold`'s doc comment for the full numbers) to
+  clear that measured noise floor, fixing the false-positive case. The
+  margin between a clean pan and genuine shake is still thin in this test,
+  so shake *sensitivity* on real camera footage isn't validated yet - this
+  needs real wedding footage to tune properly, not more synthetic clips.
 - **Linux build needs glibc 2.39+** (Ubuntu 24.04 or newer, or an equivalent
   distro release): the `ort` crate's prebuilt ONNX Runtime binary references
   glibc symbols (e.g. `__isoc23_strtoll`) only present from glibc 2.38
