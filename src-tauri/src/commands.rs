@@ -16,16 +16,25 @@ pub struct AnalysisResult {
 }
 
 #[tauri::command]
-pub fn scan_folder(path: String, state: State<AppState>) -> Result<Vec<ClipInfo>, String> {
-    let clips = ingest::scan_folder(Path::new(&path)).map_err(|e| e.to_string())?;
+pub async fn scan_folder(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<ClipInfo>, String> {
+    // Walking a real wedding-shoot folder (500GB+, per the blueprint) can
+    // take a while - run it off the UI thread so the window doesn't appear
+    // to hang while it's still walking.
+    let clips = tauri::async_runtime::spawn_blocking(move || ingest::scan_folder(Path::new(&path)))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
     *state.scanned_clips.lock().unwrap() = clips.clone();
     Ok(clips)
 }
 
 #[tauri::command]
-pub fn analyze_project(
+pub async fn analyze_project(
     tolerance: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<AnalysisResult, String> {
     let clips = state.scanned_clips.lock().unwrap().clone();
     if clips.is_empty() {
@@ -42,7 +51,15 @@ pub fn analyze_project(
         proxy_root: state.proxy_root.clone(),
     };
 
-    let results = analyze_clips(&ffmpeg_path, &clips, &config);
+    // analyze_clips shells out to ffmpeg per clip (in parallel via rayon)
+    // and can run for minutes on a real folder - run it off the UI thread
+    // so the window stays responsive instead of going "Not Responding"
+    // while it works.
+    let results = tauri::async_runtime::spawn_blocking(move || {
+        analyze_clips(&ffmpeg_path, &clips, &config)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
 
     let mut analyzed = Vec::new();
     let mut errors = Vec::new();

@@ -2,6 +2,22 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
 
+/// ffmpeg.exe is a console application, so spawning it from a GUI app on
+/// Windows pops up a visible console window per invocation unless told not
+/// to - with proxy extraction running per-clip and in parallel
+/// (`pipeline::analyze_clips`), a folder of any real size would otherwise
+/// flash open dozens of console windows during a scan.
+fn new_ffmpeg_command(ffmpeg_path: &Path) -> Command {
+    let mut cmd = Command::new(ffmpeg_path);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 #[derive(Debug, Error)]
 pub enum FfmpegError {
     #[error("ffmpeg binary not found (set CULLFLOW_FFMPEG_PATH or install ffmpeg on PATH)")]
@@ -55,7 +71,7 @@ pub fn extract_proxy_frames(
     let pattern = out_dir.join("frame_%06d.jpg");
 
     let run = |hwaccel: Option<&str>| -> Result<std::process::Output, FfmpegError> {
-        let mut cmd = Command::new(ffmpeg_path);
+        let mut cmd = new_ffmpeg_command(ffmpeg_path);
         cmd.arg("-y")
             .arg("-hide_banner")
             .arg("-loglevel")
@@ -110,7 +126,7 @@ pub fn extract_proxy_audio(
         std::fs::create_dir_all(parent)?;
     }
 
-    let output = Command::new(ffmpeg_path)
+    let output = new_ffmpeg_command(ffmpeg_path)
         .arg("-y")
         .arg("-hide_banner")
         .arg("-loglevel")
