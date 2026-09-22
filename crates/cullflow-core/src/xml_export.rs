@@ -75,9 +75,19 @@ pub fn generate_fcpxml(clips: &[AnalyzedClip], sample_every_secs: f64) -> String
         let duration_frames = frames(duration_secs);
         let uri = file_uri(&clip.clip.path);
         let name = xml_escape(&clip.clip.file_name);
+        let has_audio_attr = if clip.has_audio {
+            " hasAudio=\"1\""
+        } else {
+            ""
+        };
 
+        // The source URI belongs in a nested <media-rep>, not a `src`
+        // attribute directly on <asset> - the latter isn't valid FCPXML per
+        // the format's DTD, and while Final Cut Pro's own importer tolerates
+        // it, DaVinci Resolve's and Premiere Pro's stricter FCPXML parsers
+        // reject it outright.
         resources.push_str(&format!(
-            "    <asset id=\"{asset_id}\" name=\"{name}\" src=\"{uri}\" start=\"0/{TIMELINE_FPS}s\" duration=\"{duration_frames}/{TIMELINE_FPS}s\" hasVideo=\"1\" format=\"r0\"/>\n"
+            "    <asset id=\"{asset_id}\" name=\"{name}\" start=\"0/{TIMELINE_FPS}s\" duration=\"{duration_frames}/{TIMELINE_FPS}s\" hasVideo=\"1\"{has_audio_attr} format=\"r0\">\n      <media-rep kind=\"original-media\" src=\"{uri}\"></media-rep>\n    </asset>\n"
         ));
 
         let enabled = if clip.classification == Classification::DiscardTake {
@@ -106,6 +116,9 @@ pub fn generate_fcpxml(clips: &[AnalyzedClip], sample_every_secs: f64) -> String
         offset_frames += duration_frames;
     }
 
+    // DaVinci Resolve and Premiere Pro both reject a <sequence> missing
+    // duration/tcStart/tcFormat, even though Final Cut Pro's own importer
+    // is lenient about it - same story as <asset>'s media-rep above.
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
@@ -115,7 +128,7 @@ pub fn generate_fcpxml(clips: &[AnalyzedClip], sample_every_secs: f64) -> String
   <library>
     <event name="CullFlow AI Export">
       <project name="CullFlow Cull Pass">
-        <sequence format="r0">
+        <sequence format="r0" duration="{offset_frames}/{TIMELINE_FPS}s" tcStart="0s" tcFormat="NDF">
           <spine>
 {spine}          </spine>
         </sequence>
@@ -182,5 +195,49 @@ mod tests {
         assert_eq!(xml.matches("<asset-clip").count(), 3);
         assert_eq!(xml.matches("</asset-clip>").count(), 3);
         assert!(xml.starts_with("<?xml"));
+    }
+
+    #[test]
+    fn asset_source_is_a_media_rep_not_a_bare_src_attribute() {
+        // <asset src="..."> isn't valid FCPXML - DaVinci Resolve and Premiere
+        // Pro's stricter parsers reject it even though Final Cut Pro
+        // tolerates it. The URI must live in a nested <media-rep>.
+        let xml = generate_fcpxml(&[clip("a.mp4", Classification::BestTake, 90.0)], 0.5);
+        let asset_start = xml.find("<asset ").unwrap();
+        let asset_end = xml[asset_start..].find('>').unwrap() + asset_start;
+        let asset_open_tag = &xml[asset_start..asset_end];
+        assert!(!asset_open_tag.contains("src="));
+        assert!(xml.contains("<media-rep kind=\"original-media\" src=\"file:///footage/a.mp4\">"));
+    }
+
+    #[test]
+    fn sequence_declares_duration_and_timecode_format() {
+        // DaVinci Resolve and Premiere Pro both reject a <sequence> missing
+        // these attributes, even though Final Cut Pro's importer is lenient.
+        let xml = generate_fcpxml(
+            &[
+                clip("a.mp4", Classification::BestTake, 90.0),
+                clip("b.mp4", Classification::UsableBRoll, 50.0),
+            ],
+            0.5,
+        );
+        assert!(xml.contains("tcStart=\"0s\""));
+        assert!(xml.contains("tcFormat=\"NDF\""));
+        // Each clip has 0 sampled frames in this fixture, so
+        // clip_duration_secs falls back to sample_every_secs (0.5s = 15
+        // frames at 30fps) per clip; two clips -> 30 frames total.
+        assert!(xml.contains("<sequence format=\"r0\" duration=\"30/30s\""));
+    }
+
+    #[test]
+    fn asset_declares_audio_presence() {
+        let mut with_audio = clip("a.mp4", Classification::BestTake, 90.0);
+        with_audio.has_audio = true;
+        let xml = generate_fcpxml(&[with_audio], 0.5);
+        assert!(xml.contains("hasAudio=\"1\""));
+
+        let without_audio = clip("b.mp4", Classification::BestTake, 90.0);
+        let xml = generate_fcpxml(&[without_audio], 0.5);
+        assert!(!xml.contains("hasAudio"));
     }
 }
