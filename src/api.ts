@@ -22,8 +22,8 @@ export async function setTolerance(tolerance: Tolerance): Promise<AnalysisResult
 
 export async function exportXml(): Promise<string | null> {
   const outputPath = await save({
-    defaultPath: "CullFlow-Export.fcpxml",
-    filters: [{ name: "FCPXML", extensions: ["fcpxml", "xml"] }],
+    defaultPath: "CullFlow-Export.xml",
+    filters: [{ name: "Final Cut Pro XML (Premiere/Resolve)", extensions: ["xml"] }],
   });
   if (!outputPath) return null;
   return invoke<string>("export_xml", { outputPath });

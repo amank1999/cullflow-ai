@@ -16,14 +16,36 @@ fn xml_escape(s: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-fn file_uri(path: &str) -> String {
-    if path.starts_with('/') {
-        format!("file://{}", xml_escape(path))
-    } else {
-        // Windows-style paths (C:\...): normalize to file:///C:/...
-        let normalized = path.replace('\\', "/");
-        format!("file:///{}", xml_escape(&normalized))
+/// Percent-encodes everything outside a small safe set (keeping `/` and `:`
+/// unescaped so drive letters and path separators stay readable) - real
+/// footage paths routinely contain spaces, and an un-encoded space in a
+/// `file://` URL is invalid enough that some importers fail to resolve the
+/// media even when the rest of the XML parses fine.
+fn percent_encode_path(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' | b':' => {
+                out.push(b as char);
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
     }
+    out
+}
+
+/// Builds a `file://localhost/...` path URL the way Final Cut Pro 7 XML
+/// (and Premiere Pro/DaVinci Resolve's importers for it) expect: an absolute
+/// path with forward slashes, a leading slash before a Windows drive letter,
+/// and percent-encoded special characters.
+fn file_pathurl(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    let absolute = if normalized.starts_with('/') {
+        normalized
+    } else {
+        format!("/{normalized}")
+    };
+    format!("file://localhost{}", percent_encode_path(&absolute))
 }
 
 fn frames(secs: f64) -> u64 {
@@ -49,94 +71,113 @@ fn marker_for(classification: Classification, score: f64, flags: &[String]) -> S
     xml_escape(&format!("{label} (score {:.0}){flag_suffix}", score))
 }
 
-/// Builds a standard FCPXML 1.10 sequence (imports cleanly into both DaVinci
-/// Resolve and Premiere Pro) with one asset-clip per source clip in folder
-/// order, a marker carrying the classification + score on each, and discard
-/// takes disabled in the timeline (`enabled="0"`) rather than deleted, so an
-/// editor can review and restore them - matching the blueprint's "muted
-/// secondary track for editor safety" intent without needing multi-lane math.
-///
-/// Marker type doubles as the color cue FCPXML itself doesn't carry: Best
-/// Take is a completed to-do marker (renders as a green checkmark), Discard
-/// is an incomplete to-do marker (renders red/orange), and Usable B-Roll is
-/// a standard marker.
-pub fn generate_fcpxml(clips: &[AnalyzedClip], sample_every_secs: f64) -> String {
-    let mut resources = String::new();
-    let mut spine = String::new();
-    let mut offset_frames: u64 = 0;
+fn rate_block(indent: &str) -> String {
+    format!("{indent}<rate>\n{indent}  <timebase>{TIMELINE_FPS}</timebase>\n{indent}  <ntsc>FALSE</ntsc>\n{indent}</rate>\n")
+}
 
-    resources.push_str(&format!(
-        "    <format id=\"r0\" name=\"FFVideoFormat1080p30\" frameDuration=\"1/{TIMELINE_FPS}s\" width=\"1920\" height=\"1080\"/>\n"
-    ));
+/// Builds a "Final Cut Pro 7 XML Interchange Format" (XMEML v5) sequence -
+/// despite the name, this is the format Adobe Premiere Pro's File > Import
+/// actually understands, and DaVinci Resolve accepts it too. It is a
+/// completely different, older schema from modern FCPXML (what Final Cut
+/// Pro X itself uses, `<fcpxml version="...">`) - the two are easily
+/// confused since both get casually called "Final Cut Pro XML", but
+/// Premiere Pro's importer does not recognize modern FCPXML at all (it
+/// rejects it immediately as an unsupported file type, before parsing any
+/// content).
+///
+/// One clipitem per source clip in folder order, a point marker carrying
+/// the classification + score on each, and discard takes disabled
+/// (`<enabled>FALSE</enabled>`) rather than removed, so an editor can review
+/// and restore them - matching the blueprint's "muted secondary track for
+/// editor safety" intent without needing multi-lane math.
+pub fn generate_premiere_xml(clips: &[AnalyzedClip], sample_every_secs: f64) -> String {
+    let mut clipitems = String::new();
+    let mut start_frame: u64 = 0;
 
     for (i, clip) in clips.iter().enumerate() {
-        let asset_id = format!("a{i}");
+        let n = i + 1;
         let duration_secs = clip_duration_secs(clip, sample_every_secs);
         let duration_frames = frames(duration_secs);
-        let uri = file_uri(&clip.clip.path);
+        let end_frame = start_frame + duration_frames;
         let name = xml_escape(&clip.clip.file_name);
-        let has_audio_attr = if clip.has_audio {
-            " hasAudio=\"1\""
-        } else {
-            ""
-        };
-
-        // The source URI belongs in a nested <media-rep>, not a `src`
-        // attribute directly on <asset> - the latter isn't valid FCPXML per
-        // the format's DTD, and while Final Cut Pro's own importer tolerates
-        // it, DaVinci Resolve's and Premiere Pro's stricter FCPXML parsers
-        // reject it outright.
-        resources.push_str(&format!(
-            "    <asset id=\"{asset_id}\" name=\"{name}\" start=\"0/{TIMELINE_FPS}s\" duration=\"{duration_frames}/{TIMELINE_FPS}s\" hasVideo=\"1\"{has_audio_attr} format=\"r0\">\n      <media-rep kind=\"original-media\" src=\"{uri}\"></media-rep>\n    </asset>\n"
-        ));
-
+        let pathurl = xml_escape(&file_pathurl(&clip.clip.path));
         let enabled = if clip.classification == Classification::DiscardTake {
-            "0"
+            "FALSE"
         } else {
-            "1"
+            "TRUE"
         };
         let marker_value = marker_for(clip.classification, clip.score, &clip.flags);
-        let marker_completed = match clip.classification {
-            Classification::BestTake => "1",
-            Classification::DiscardTake => "0",
-            Classification::UsableBRoll => "0",
-        };
-        let marker_tag = if clip.classification == Classification::UsableBRoll {
-            format!("<marker start=\"0/{TIMELINE_FPS}s\" duration=\"1/{TIMELINE_FPS}s\" value=\"{marker_value}\"/>")
-        } else {
-            format!("<marker-to-do start=\"0/{TIMELINE_FPS}s\" duration=\"1/{TIMELINE_FPS}s\" value=\"{marker_value}\" completed=\"{marker_completed}\"/>")
-        };
 
-        spine.push_str(&format!(
-            "        <asset-clip ref=\"{asset_id}\" name=\"{name}\" offset=\"{offset_frames}/{TIMELINE_FPS}s\" duration=\"{duration_frames}/{TIMELINE_FPS}s\" start=\"0/{TIMELINE_FPS}s\" enabled=\"{enabled}\">\n"
+        clipitems.push_str(&format!("          <clipitem id=\"clipitem-{n}\">\n"));
+        clipitems.push_str(&format!("            <name>{name}</name>\n"));
+        clipitems.push_str(&format!("            <enabled>{enabled}</enabled>\n"));
+        clipitems.push_str(&format!(
+            "            <duration>{duration_frames}</duration>\n"
         ));
-        spine.push_str(&format!("          {marker_tag}\n"));
-        spine.push_str("        </asset-clip>\n");
+        clipitems.push_str(&rate_block("            "));
+        clipitems.push_str(&format!("            <start>{start_frame}</start>\n"));
+        clipitems.push_str(&format!("            <end>{end_frame}</end>\n"));
+        clipitems.push_str("            <in>0</in>\n");
+        clipitems.push_str(&format!("            <out>{duration_frames}</out>\n"));
+        clipitems.push_str(&format!("            <file id=\"file-{n}\">\n"));
+        clipitems.push_str(&format!("              <name>{name}</name>\n"));
+        clipitems.push_str(&format!("              <pathurl>{pathurl}</pathurl>\n"));
+        clipitems.push_str(&rate_block("              "));
+        clipitems.push_str(&format!(
+            "              <duration>{duration_frames}</duration>\n"
+        ));
+        clipitems.push_str("              <media>\n");
+        clipitems.push_str("                <video>\n");
+        clipitems.push_str("                  <samplecharacteristics>\n");
+        clipitems.push_str("                    <width>1920</width>\n");
+        clipitems.push_str("                    <height>1080</height>\n");
+        clipitems.push_str("                  </samplecharacteristics>\n");
+        clipitems.push_str("                </video>\n");
+        if clip.has_audio {
+            clipitems.push_str("                <audio>\n");
+            clipitems.push_str("                  <samplecharacteristics>\n");
+            clipitems.push_str("                    <depth>16</depth>\n");
+            clipitems.push_str("                    <samplerate>48000</samplerate>\n");
+            clipitems.push_str("                  </samplecharacteristics>\n");
+            clipitems.push_str("                  <channelcount>2</channelcount>\n");
+            clipitems.push_str("                </audio>\n");
+        }
+        clipitems.push_str("              </media>\n");
+        clipitems.push_str("            </file>\n");
+        clipitems.push_str("            <marker>\n");
+        clipitems.push_str(&format!("              <name>{marker_value}</name>\n"));
+        clipitems.push_str("              <in>0</in>\n");
+        clipitems.push_str("              <out>-1</out>\n");
+        clipitems.push_str("              <comment></comment>\n");
+        clipitems.push_str("            </marker>\n");
+        clipitems.push_str("          </clipitem>\n");
 
-        offset_frames += duration_frames;
+        start_frame = end_frame;
     }
 
-    // DaVinci Resolve and Premiere Pro both reject a <sequence> missing
-    // duration/tcStart/tcFormat, even though Final Cut Pro's own importer
-    // is lenient about it - same story as <asset>'s media-rep above.
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE fcpxml>
-<fcpxml version="1.10">
-  <resources>
-{resources}  </resources>
-  <library>
-    <event name="CullFlow AI Export">
-      <project name="CullFlow Cull Pass">
-        <sequence format="r0" duration="{offset_frames}/{TIMELINE_FPS}s" tcStart="0s" tcFormat="NDF">
-          <spine>
-{spine}          </spine>
-        </sequence>
-      </project>
-    </event>
-  </library>
-</fcpxml>
-"#
+<!DOCTYPE xmeml>
+<xmeml version="5">
+  <sequence>
+    <name>CullFlow Cull Pass</name>
+    <duration>{start_frame}</duration>
+{seq_rate}    <media>
+      <video>
+        <format>
+          <samplecharacteristics>
+            <width>1920</width>
+            <height>1080</height>
+          </samplecharacteristics>
+        </format>
+        <track>
+{clipitems}        </track>
+      </video>
+    </media>
+  </sequence>
+</xmeml>
+"#,
+        seq_rate = rate_block("    "),
     )
 }
 
@@ -170,20 +211,32 @@ mod tests {
 
     #[test]
     fn discard_clips_are_disabled_in_the_timeline() {
-        let xml = generate_fcpxml(&[clip("bad.mp4", Classification::DiscardTake, 10.0)], 0.5);
-        assert!(xml.contains("enabled=\"0\""));
+        let xml = generate_premiere_xml(&[clip("bad.mp4", Classification::DiscardTake, 10.0)], 0.5);
+        assert!(xml.contains("<enabled>FALSE</enabled>"));
     }
 
     #[test]
-    fn best_take_uses_completed_to_do_marker() {
-        let xml = generate_fcpxml(&[clip("good.mp4", Classification::BestTake, 90.0)], 0.5);
-        assert!(xml.contains("marker-to-do"));
-        assert!(xml.contains("completed=\"1\""));
+    fn enabled_clips_are_marked_true() {
+        let xml = generate_premiere_xml(&[clip("good.mp4", Classification::BestTake, 90.0)], 0.5);
+        assert!(xml.contains("<enabled>TRUE</enabled>"));
+    }
+
+    #[test]
+    fn output_is_xmeml_not_modern_fcpxml() {
+        // Modern FCPXML (<fcpxml version="...">) is Final Cut Pro X's own
+        // format - Premiere Pro's importer doesn't recognize it at all and
+        // rejects the file outright. XMEML (<xmeml version="5">) is the
+        // legacy "Final Cut Pro 7 XML" format Premiere's File > Import
+        // actually understands, and DaVinci Resolve accepts it too.
+        let xml = generate_premiere_xml(&[clip("a.mp4", Classification::BestTake, 90.0)], 0.5);
+        assert!(xml.contains("<!DOCTYPE xmeml>"));
+        assert!(xml.contains("<xmeml version=\"5\">"));
+        assert!(!xml.contains("fcpxml"));
     }
 
     #[test]
     fn output_is_well_formed_enough_to_parse_as_xml() {
-        let xml = generate_fcpxml(
+        let xml = generate_premiere_xml(
             &[
                 clip("a.mp4", Classification::BestTake, 90.0),
                 clip("b.mp4", Classification::UsableBRoll, 50.0),
@@ -192,52 +245,48 @@ mod tests {
             0.5,
         );
         // Cheap structural sanity check without pulling in a full XML parser dependency.
-        assert_eq!(xml.matches("<asset-clip").count(), 3);
-        assert_eq!(xml.matches("</asset-clip>").count(), 3);
+        assert_eq!(xml.matches("<clipitem ").count(), 3);
+        assert_eq!(xml.matches("</clipitem>").count(), 3);
         assert!(xml.starts_with("<?xml"));
     }
 
     #[test]
-    fn asset_source_is_a_media_rep_not_a_bare_src_attribute() {
-        // <asset src="..."> isn't valid FCPXML - DaVinci Resolve and Premiere
-        // Pro's stricter parsers reject it even though Final Cut Pro
-        // tolerates it. The URI must live in a nested <media-rep>.
-        let xml = generate_fcpxml(&[clip("a.mp4", Classification::BestTake, 90.0)], 0.5);
-        let asset_start = xml.find("<asset ").unwrap();
-        let asset_end = xml[asset_start..].find('>').unwrap() + asset_start;
-        let asset_open_tag = &xml[asset_start..asset_end];
-        assert!(!asset_open_tag.contains("src="));
-        assert!(xml.contains("<media-rep kind=\"original-media\" src=\"file:///footage/a.mp4\">"));
-    }
-
-    #[test]
-    fn sequence_declares_duration_and_timecode_format() {
-        // DaVinci Resolve and Premiere Pro both reject a <sequence> missing
-        // these attributes, even though Final Cut Pro's importer is lenient.
-        let xml = generate_fcpxml(
+    fn clip_timeline_positions_are_contiguous() {
+        let xml = generate_premiere_xml(
             &[
                 clip("a.mp4", Classification::BestTake, 90.0),
                 clip("b.mp4", Classification::UsableBRoll, 50.0),
             ],
             0.5,
         );
-        assert!(xml.contains("tcStart=\"0s\""));
-        assert!(xml.contains("tcFormat=\"NDF\""));
         // Each clip has 0 sampled frames in this fixture, so
         // clip_duration_secs falls back to sample_every_secs (0.5s = 15
-        // frames at 30fps) per clip; two clips -> 30 frames total.
-        assert!(xml.contains("<sequence format=\"r0\" duration=\"30/30s\""));
+        // frames at 30fps): clip 1 spans [0,15), clip 2 spans [15,30).
+        assert!(xml.contains("<start>0</start>"));
+        assert!(xml.contains("<end>15</end>"));
+        assert!(xml.contains("<start>15</start>"));
+        assert!(xml.contains("<end>30</end>"));
+        assert!(xml.contains("<duration>30</duration>")); // sequence total
     }
 
     #[test]
-    fn asset_declares_audio_presence() {
+    fn path_with_spaces_is_percent_encoded_in_the_pathurl() {
+        let mut c = clip("My Clip.mp4", Classification::BestTake, 90.0);
+        c.clip.path = "E:\\Wedding Shoot\\raw\\My Clip.mp4".to_string();
+        let xml = generate_premiere_xml(&[c], 0.5);
+        assert!(xml.contains("file://localhost/E:/Wedding%20Shoot/raw/My%20Clip.mp4"));
+        assert!(!xml.contains("localhost/E:/Wedding Shoot"));
+    }
+
+    #[test]
+    fn audio_samplecharacteristics_only_present_when_clip_has_audio() {
         let mut with_audio = clip("a.mp4", Classification::BestTake, 90.0);
         with_audio.has_audio = true;
-        let xml = generate_fcpxml(&[with_audio], 0.5);
-        assert!(xml.contains("hasAudio=\"1\""));
+        let xml = generate_premiere_xml(&[with_audio], 0.5);
+        assert!(xml.contains("<audio>"));
 
         let without_audio = clip("b.mp4", Classification::BestTake, 90.0);
-        let xml = generate_fcpxml(&[without_audio], 0.5);
-        assert!(!xml.contains("hasAudio"));
+        let xml = generate_premiere_xml(&[without_audio], 0.5);
+        assert!(!xml.contains("<audio>"));
     }
 }

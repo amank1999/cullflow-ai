@@ -8,6 +8,7 @@ use thiserror::Error;
 /// (`pipeline::analyze_clips`), a folder of any real size would otherwise
 /// flash open dozens of console windows during a scan.
 fn new_ffmpeg_command(ffmpeg_path: &Path) -> Command {
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut cmd = Command::new(ffmpeg_path);
     #[cfg(windows)]
     {

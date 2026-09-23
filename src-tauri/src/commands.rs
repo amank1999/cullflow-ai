@@ -120,7 +120,7 @@ pub fn export_xml(output_path: String, state: State<AppState>) -> Result<String,
         return Err("No analyzed clips yet - run analyze_project first.".to_string());
     }
 
-    let xml = xml_export::generate_fcpxml(&clips, 0.5);
+    let xml = xml_export::generate_premiere_xml(&clips, 0.5);
     std::fs::write(&output_path, xml).map_err(|e| e.to_string())?;
     Ok(output_path)
 }

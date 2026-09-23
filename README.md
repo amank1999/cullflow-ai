@@ -7,7 +7,7 @@ cloud uploads: everything runs on the editor's own machine.
 ## Status: MVP scaffold (blueprint Weeks 1–5)
 
 This pass implements the core pipeline end to end - folder ingest, proxy
-extraction, CV scoring, classification, FCPXML export, an offline license-key
+extraction, CV scoring, classification, NLE XML export, an offline license-key
 system, block-matching motion detection, face/blink detection, and audio
 VAD - plus a working desktop UI. It intentionally does **not** yet implement
 payment-processor integration; see [Known
@@ -49,7 +49,7 @@ cullflow-ai/
     src/motion.rs             Block-matching motion estimation (shake vs. pan)
     src/face.rs               Bundled ONNX face detector (informational "contains a face" signal)
     src/license.rs            Ed25519 offline license-key signing/verification
-    src/xml_export.rs         FCPXML 1.10 sequence generator
+    src/xml_export.rs         XMEML ("Final Cut Pro XML") sequence generator
     src/pipeline.rs           Parallel (rayon) per-clip analysis pipeline
     src/models.rs             Shared data types (ClipInfo, AnalyzedClip, Tolerance, ...)
 
@@ -106,12 +106,15 @@ Prerequisites).
    - **Aggressive** vs **Conservative** tolerance changes the sharpness/motion
      thresholds; switching it in the UI reclassifies already-scored clips
      instantly (`scoring::reclassify`) without re-running ffmpeg.
-4. **Export** (`xml_export::generate_fcpxml`) - writes a standard FCPXML 1.10
-   sequence (imports into both DaVinci Resolve and Premiere Pro) with one
-   `asset-clip` per source clip and a marker carrying its classification +
-   score. Discard clips are written with `enabled="0"` (present but disabled
-   in the timeline) rather than deleted, matching the blueprint's "muted
-   secondary track for editor safety" intent without needing multi-lane math.
+4. **Export** (`xml_export::generate_premiere_xml`) - writes an XMEML v5
+   sequence (the legacy "Final Cut Pro 7 XML Interchange Format" - despite
+   the name, this is what Adobe Premiere Pro's File > Import actually
+   understands, and DaVinci Resolve accepts it too) with one `clipitem` per
+   source clip and a marker carrying its classification + score. See "NLE
+   export format" below for why this isn't modern FCPXML. Discard clips are
+   written with `<enabled>FALSE</enabled>` (present but disabled in the
+   timeline) rather than deleted, matching the blueprint's "muted secondary
+   track for editor safety" intent without needing multi-lane math.
 
 Each frame is also checked for a face and, when one's found, whether its
 eyes are closed (`face::FaceDetector` / `landmarks::LandmarkDetector`, see
@@ -283,15 +286,25 @@ Add `--features face-detection,audio-vad` for face/blink/speech signals too
   Swapping in dense flow (e.g. via an `opencv-rust` binding once that native
   dependency is worth taking on) would be a drop-in replacement for this
   function's body without changing its callers.
-- **Clip duration in the FCPXML export** is approximated from the number of
+- **Clip duration in the NLE export** is approximated from the number of
   sampled proxy frames × the sampling interval, not the source's true frame
   rate/duration (which would need an `ffprobe` call). Good enough to land
   clips in roughly the right place and see the right marker; not
   frame-accurate for a conform pass.
-- **Format choice**: the blueprint says "FCPXML / Premiere XML" - this
-  implementation writes FCPXML only, since it's a single well-documented
-  format both DaVinci Resolve and Premiere Pro import natively, versus
-  maintaining two serializers.
+- **NLE export format**: the first implementation of this feature generated
+  modern FCPXML (`<fcpxml version="1.10">`, Final Cut Pro X's own format),
+  on the assumption - stated directly in the blueprint - that this is a
+  single well-documented format both DaVinci Resolve and Premiere Pro
+  import natively. A real user's first test proved that assumption wrong
+  for Premiere Pro: its File > Import rejects modern FCPXML outright as an
+  unsupported file type. It turns out "Final Cut Pro XML" casually refers
+  to two unrelated schemas - modern FCPXML (FCP X) and the older XMEML
+  ("Final Cut Pro 7 XML Interchange Format", `<xmeml version="5">`), and
+  Premiere Pro's importer only understands the latter. CullFlow now
+  generates XMEML instead, which both DaVinci Resolve and Premiere Pro
+  import; this cost the FCP X-native features modern FCPXML has (styled
+  markers rendering as colored to-do checkmarks, keyword collections) in
+  exchange for actually opening in the two NLEs this project targets.
 - **Landmark model size**: the bundled PIPNet ONNX model
   (`pipnet_landmarks_300w_68.onnx`) is ~48MB, embedded directly into the
   binary via `include_bytes!` alongside the ~1.3MB face detector, for the
